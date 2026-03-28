@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session
 
@@ -12,6 +14,7 @@ from app.services.wecom_callback_service import WeComCallbackService
 from app.services.wecom_service import WeComService
 
 router = APIRouter(prefix="/api/bot", tags=["bot"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/telegram/webhook", response_model=APIResponse[dict])
@@ -77,26 +80,31 @@ async def wecom_callback_receive(
     event = (message.get("Event") or "").strip().lower()
     display_name = (message.get("UserName") or "").strip() or from_user
 
-    if msg_type == "text" and from_user:
-        user_service = UserService(db)
-        user = user_service.get_or_create_by_wecom_userid(from_user, display_name=display_name)
-        content = (message.get("Content") or "").strip()
-        if content:
-            result = await AgentService(db).chat(
-                AgentChatRequest(
-                    user_id=user.id,
-                    channel="wecom",
-                    session_id=f"wecom_{from_user}",
-                    message=content,
+    try:
+        logger.info("WeCom callback received: msg_type=%s event=%s from_user=%s payload=%s", msg_type, event, from_user, message)
+
+        if msg_type == "text" and from_user:
+            user_service = UserService(db)
+            user = user_service.get_or_create_by_wecom_userid(from_user, display_name=display_name)
+            content = (message.get("Content") or "").strip()
+            if content:
+                result = await AgentService(db).chat(
+                    AgentChatRequest(
+                        user_id=user.id,
+                        channel="wecom",
+                        session_id=f"wecom_{from_user}",
+                        message=content,
+                    )
                 )
+                await WeComService().send_message(from_user, result["reply"])
+        elif msg_type == "event" and event == "enter_agent" and from_user:
+            user_service = UserService(db)
+            user_service.get_or_create_by_wecom_userid(from_user, display_name=display_name)
+            await WeComService().send_message(
+                from_user,
+                "欢迎使用提醒助手。你可以直接发送一句话，比如：明天下午三点提醒我开会。",
             )
-            await WeComService().send_message(from_user, result["reply"])
-    elif msg_type == "event" and event == "enter_agent" and from_user:
-        user_service = UserService(db)
-        user_service.get_or_create_by_wecom_userid(from_user, display_name=display_name)
-        await WeComService().send_message(
-            from_user,
-            "欢迎使用提醒助手。你可以直接发送一句话，比如：明天下午三点提醒我开会。",
-        )
+    except Exception:
+        logger.exception("WeCom callback handling failed. payload=%s plain_xml=%s", message, plain_xml)
 
     return Response(content="success", media_type="text/plain")
