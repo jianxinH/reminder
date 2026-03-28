@@ -32,6 +32,9 @@ class UserRepository:
     def get_by_telegram_chat_id(self, chat_id: str) -> User | None:
         return self.db.query(User).filter(User.telegram_chat_id == chat_id).first()
 
+    def get_by_wecom_userid(self, wecom_userid: str) -> User | None:
+        return self.db.query(User).filter(User.wecom_userid == wecom_userid).first()
+
     def save(self, user: User) -> User:
         self.db.add(user)
         self.db.commit()

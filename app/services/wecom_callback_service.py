@@ -1,8 +1,8 @@
 import base64
 import hashlib
-import os
 import struct
 import xml.etree.ElementTree as ET
+from datetime import datetime
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -56,6 +56,13 @@ class WeComCallbackService:
         if receive_id != self.settings.wecom_corp_id:
             raise ValueError("Invalid WeCom corp id")
         return msg.decode("utf-8")
+
+    def parse_message(self, xml_text: str) -> dict[str, str]:
+        root = ET.fromstring(xml_text)
+        result: dict[str, str] = {}
+        for child in root:
+            result[child.tag] = child.text or ""
+        return result
 
     def _pkcs7_unpad(self, text: bytes) -> bytes:
         pad = text[-1]

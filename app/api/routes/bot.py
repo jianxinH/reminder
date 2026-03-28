@@ -6,9 +6,10 @@ from app.schemas.agent import AgentChatRequest
 from app.schemas.bot import TelegramWebhookRequest
 from app.schemas.common import APIResponse
 from app.services.agent_service import AgentService
-from app.services.wecom_callback_service import WeComCallbackService
 from app.services.telegram_service import TelegramService
 from app.services.user_service import UserService
+from app.services.wecom_callback_service import WeComCallbackService
+from app.services.wecom_service import WeComService
 
 router = APIRouter(prefix="/api/bot", tags=["bot"])
 
@@ -55,6 +56,7 @@ async def wecom_callback_verify(
 @router.post("/wecom/callback", include_in_schema=False)
 async def wecom_callback_receive(
     request: Request,
+    db: Session = Depends(get_db),
     msg_signature: str = Query(...),
     timestamp: str = Query(...),
     nonce: str = Query(...),
@@ -65,9 +67,38 @@ async def wecom_callback_receive(
 
     body = await request.body()
     try:
-        service.decrypt_post_body(body, msg_signature, timestamp, nonce)
+        plain_xml = service.decrypt_post_body(body, msg_signature, timestamp, nonce)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    # WeCom only requires a 200 response here for the callback to be considered delivered.
+    message = service.parse_message(plain_xml)
+    msg_type = (message.get("MsgType") or "").strip().lower()
+    from_user = (message.get("FromUserName") or "").strip()
+    event = (message.get("Event") or "").strip().lower()
+
+    if msg_type == "text" and from_user:
+        user = UserService(db).get_by_wecom_userid(from_user)
+        if user:
+            content = (message.get("Content") or "").strip()
+            if content:
+                result = await AgentService(db).chat(
+                    AgentChatRequest(
+                        user_id=user.id,
+                        channel="wecom",
+                        session_id=f"wecom_{from_user}",
+                        message=content,
+                    )
+                )
+                await WeComService().send_message(from_user, result["reply"])
+        else:
+            await WeComService().send_message(
+                from_user,
+                "你的企业微信账号还没有绑定到提醒系统，请先在系统里填写 wecom_userid 后再试。",
+            )
+    elif msg_type == "event" and event == "enter_agent" and from_user:
+        await WeComService().send_message(
+            from_user,
+            "欢迎使用提醒助手。你可以直接发送一句话，比如：明天下午三点提醒我开会。",
+        )
+
     return Response(content="success", media_type="text/plain")

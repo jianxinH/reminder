@@ -17,6 +17,9 @@ class UserService:
     def get_by_telegram_chat_id(self, chat_id: str):
         return self.repo.get_by_telegram_chat_id(chat_id)
 
+    def get_by_wecom_userid(self, wecom_userid: str):
+        return self.repo.get_by_wecom_userid(wecom_userid)
+
     def update_user(self, user_id: int, payload: UserUpdateRequest):
         user = self.repo.get_by_id(user_id)
         if not user:
