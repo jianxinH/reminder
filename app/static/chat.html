@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Reminder Agent Chat</title>
+    <link rel="stylesheet" href="/static/chat.css?v=20260327-1705" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <h1>Reminder Agent</h1>
+        <p>在这里直接对话、查看网页提醒，并同步看到当前待处理的提醒列表。</p>
+      </section>
+
+      <section class="card chat-shell">
+        <div class="toolbar">
+          <div class="field">
+            <label for="userId">User ID</label>
+            <input id="userId" type="number" min="1" value="1" />
+          </div>
+          <div class="field">
+            <label for="sessionId">Session</label>
+            <input id="sessionId" type="text" value="web_demo" />
+          </div>
+          <div class="field">
+            <label>API</label>
+            <input type="text" value="/api/agent/chat" readonly />
+          </div>
+        </div>
+
+        <section class="inbox-panel">
+          <div class="inbox-header">
+            <h2>提醒收件箱</h2>
+            <p>网页提醒到点后会出现在这里，你可以直接完成或延后。</p>
+          </div>
+          <div id="inbox" class="inbox-list"></div>
+        </section>
+
+        <section class="reminder-panel">
+          <div class="reminder-header">
+            <div>
+              <h2>我的提醒</h2>
+              <p>这里只显示待处理中的提醒，已完成的不再展示。</p>
+            </div>
+            <button id="toggleReminders" class="panel-toggle" type="button" aria-expanded="false">展开</button>
+          </div>
+          <div id="reminderList" class="reminder-list compact"></div>
+        </section>
+
+        <div id="messages" class="messages"></div>
+
+        <section id="draftActions" class="draft-actions hidden" aria-live="polite" hidden>
+          <div class="draft-actions-copy">
+            <strong id="draftActionsTitle">当前有一份提醒草案</strong>
+            <p id="draftActionsDesc">确认后才会真正创建到数据库；取消后这份草案会丢弃。</p>
+          </div>
+          <div class="draft-actions-buttons">
+            <button id="confirmDraft" type="button">确认创建</button>
+            <button id="cancelDraft" type="button" class="secondary">取消草案</button>
+          </div>
+        </section>
+
+        <form id="composer" class="composer">
+          <textarea id="message" placeholder="输入一句话，例如：明天下午三点提醒我开会"></textarea>
+          <button id="submit" type="submit">发送</button>
+        </form>
+
+        <div class="hint">提示：创建成功后，“我的提醒”面板会自动刷新。</div>
+      </section>
+    </main>
+
+    <script src="/static/chat.js?v=20260327-1705"></script>
+  </body>
+</html>

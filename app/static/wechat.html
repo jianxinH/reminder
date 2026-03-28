@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"
+    />
+    <title>提醒助手公众号入口</title>
+    <link rel="stylesheet" href="/static/wechat.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <p class="eyebrow">微信公众号 H5 入口</p>
+        <h1>把提醒助手接到公众号里，先从一个稳定入口开始</h1>
+        <p class="summary">
+          这个页面可以直接配置到公众号菜单、自动回复链接或图文消息中，作为你现有项目的移动端前台入口。
+        </p>
+        <div class="actions">
+          <a id="open-chat-link" class="button primary" href="/chat">进入聊天页</a>
+          <a class="button secondary" href="#integration-guide">查看接入说明</a>
+        </div>
+      </section>
+
+      <section class="card status-card">
+        <div class="status-header">
+          <h2>当前访问环境</h2>
+          <span id="wechat-badge" class="badge">检测中</span>
+        </div>
+        <dl class="meta-list">
+          <div>
+            <dt>来源场景</dt>
+            <dd id="scene-value">未提供</dd>
+          </div>
+          <div>
+            <dt>公众号用户标识</dt>
+            <dd id="openid-value">未提供</dd>
+          </div>
+          <div>
+            <dt>昵称</dt>
+            <dd id="nickname-value">未提供</dd>
+          </div>
+        </dl>
+        <p class="hint">
+          后续如果你接入公众号 OAuth，这里就能拿到 `openid` 并继续完成用户绑定、历史记录关联和提醒归属。
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>这一步已经能做什么</h2>
+        <ul class="feature-list">
+          <li>作为公众号菜单链接，直接打开你自己的业务页面。</li>
+          <li>把公众号流量引到现有 `FastAPI + chat` 页面，而不是重新做一套前端。</li>
+          <li>保留微信参数，后续方便继续接 `openid`、分享、支付或模板消息。</li>
+        </ul>
+      </section>
+
+      <section id="integration-guide" class="card">
+        <h2>接入公众号的建议顺序</h2>
+        <ol class="steps">
+          <li>先把线上域名的 `/wechat` 配到公众号菜单，验证页面能在微信内打开。</li>
+          <li>确认微信后台已添加业务域名与 JS 接口安全域名。</li>
+          <li>再接公众号 OAuth，把 `openid` 回传到你的后端进行用户绑定。</li>
+          <li>最后把聊天、提醒、通知记录和微信用户做一一关联。</li>
+        </ol>
+      </section>
+    </main>
+
+    <script src="/static/wechat.js"></script>
+  </body>
+</html>
