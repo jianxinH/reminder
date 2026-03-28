@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     wecom_agent_id: str = ""
     wecom_secret: str = ""
     wecom_base_url: str = "https://qyapi.weixin.qq.com"
+    wecom_token: str = ""
+    wecom_aes_key: str = ""
     telegram_bot_token: str = ""
     telegram_api_base: str = "https://api.telegram.org"
     scheduler_scan_interval_seconds: int = 60
