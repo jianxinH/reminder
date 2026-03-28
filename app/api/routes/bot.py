@@ -75,27 +75,25 @@ async def wecom_callback_receive(
     msg_type = (message.get("MsgType") or "").strip().lower()
     from_user = (message.get("FromUserName") or "").strip()
     event = (message.get("Event") or "").strip().lower()
+    display_name = (message.get("UserName") or "").strip() or from_user
 
     if msg_type == "text" and from_user:
-        user = UserService(db).get_by_wecom_userid(from_user)
-        if user:
-            content = (message.get("Content") or "").strip()
-            if content:
-                result = await AgentService(db).chat(
-                    AgentChatRequest(
-                        user_id=user.id,
-                        channel="wecom",
-                        session_id=f"wecom_{from_user}",
-                        message=content,
-                    )
+        user_service = UserService(db)
+        user = user_service.get_or_create_by_wecom_userid(from_user, display_name=display_name)
+        content = (message.get("Content") or "").strip()
+        if content:
+            result = await AgentService(db).chat(
+                AgentChatRequest(
+                    user_id=user.id,
+                    channel="wecom",
+                    session_id=f"wecom_{from_user}",
+                    message=content,
                 )
-                await WeComService().send_message(from_user, result["reply"])
-        else:
-            await WeComService().send_message(
-                from_user,
-                "你的企业微信账号还没有绑定到提醒系统，请先在系统里填写 wecom_userid 后再试。",
             )
+            await WeComService().send_message(from_user, result["reply"])
     elif msg_type == "event" and event == "enter_agent" and from_user:
+        user_service = UserService(db)
+        user_service.get_or_create_by_wecom_userid(from_user, display_name=display_name)
         await WeComService().send_message(
             from_user,
             "欢迎使用提醒助手。你可以直接发送一句话，比如：明天下午三点提醒我开会。",
