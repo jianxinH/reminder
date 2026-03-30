@@ -39,7 +39,6 @@ function addMessage(role, text, meta = "", actions = []) {
 
   messages.appendChild(wrapper);
   messages.scrollTop = messages.scrollHeight;
-
   return wrapper;
 }
 
@@ -57,6 +56,7 @@ async function callJson(url, options = {}) {
   const response = await fetch(url, options);
   const rawText = await response.text();
   let data = null;
+
   try {
     data = rawText ? JSON.parse(rawText) : null;
   } catch (error) {
@@ -65,9 +65,11 @@ async function callJson(url, options = {}) {
     }
     throw error;
   }
+
   if (!response.ok) {
     throw new Error(data?.detail || data?.message || rawText || "请求失败");
   }
+
   return data;
 }
 
@@ -92,7 +94,7 @@ async function sendQuickReply(message, buttons = []) {
 
   try {
     const result = await sendMessage(message);
-    handleAgentResult(result.data);
+    await handleAgentResult(result.data);
   } catch (error) {
     addMessage("agent", `请求失败：${error.message}`, "system");
     buttons.forEach((button) => {
@@ -104,6 +106,7 @@ async function sendQuickReply(message, buttons = []) {
 function setDraftActionsVisible(visible, config = null) {
   draftActions.classList.toggle("hidden", !visible);
   draftActions.hidden = !visible;
+
   if (config) {
     draftActionsTitle.textContent = config.title;
     draftActionsDesc.textContent = config.description;
@@ -113,12 +116,13 @@ function setDraftActionsVisible(visible, config = null) {
     cancelDraftButton.dataset.message = config.cancelMessage;
   } else {
     draftActionsTitle.textContent = "当前有一份提醒草案";
-    draftActionsDesc.textContent = "确认后才会真正创建到数据库；取消后这份草案会丢弃。";
+    draftActionsDesc.textContent = "只有在你明确确认后，才会真正创建到系统；取消后这份草案会被丢弃。";
     confirmDraftButton.textContent = "确认创建";
     cancelDraftButton.textContent = "取消草案";
-    confirmDraftButton.dataset.message = "确认";
-    cancelDraftButton.dataset.message = "取消";
+    confirmDraftButton.dataset.message = "确认创建";
+    cancelDraftButton.dataset.message = "取消草案";
   }
+
   confirmDraftButton.disabled = false;
   cancelDraftButton.disabled = false;
 }
@@ -200,8 +204,8 @@ function buildPlanDraftActions() {
   const config = {
     confirmLabel: "确认创建",
     cancelLabel: "取消草案",
-    confirmMessage: "确认",
-    cancelMessage: "取消",
+    confirmMessage: "确认创建",
+    cancelMessage: "取消草案",
   };
   const confirmButton = createButton(config.confirmLabel);
   const cancelButton = createButton(config.cancelLabel, "secondary");
@@ -236,13 +240,14 @@ function getActionConfig(intent) {
   if (intent === "plan_draft") {
     return {
       title: "当前有一份提醒草案",
-      description: "确认后才会真正创建到数据库；取消后这份草案会丢弃。",
+      description: "这只是草案，还没有真正创建。只有你明确点“确认创建”或发送“确认创建”后，系统才会落库。",
       confirmLabel: "确认创建",
       cancelLabel: "取消草案",
-      confirmMessage: "确认",
-      cancelMessage: "取消",
+      confirmMessage: "确认创建",
+      cancelMessage: "取消草案",
     };
   }
+
   if (intent === "delete_confirm") {
     return {
       title: "当前有一份删除确认",
@@ -253,33 +258,39 @@ function getActionConfig(intent) {
       cancelMessage: "取消删除",
     };
   }
+
   if (intent === "update_confirm" || intent === "snooze_confirm") {
     return {
       title: "当前有一份修改确认",
-      description: "确认后才会真正更新提醒时间；取消后不会改动数据。",
+      description: "确认后才会真正更新时间；取消后不会改动数据。",
       confirmLabel: "确认修改",
       cancelLabel: "取消修改",
       confirmMessage: "确认修改",
       cancelMessage: "取消修改",
     };
   }
+
   return null;
 }
 
 async function handleAgentResult(data) {
   const config = getActionConfig(data.intent);
   let actions = [];
+
   if (data.intent === "plan_draft") {
     actions = buildPlanDraftActions();
   } else if (config) {
     actions = buildConfirmActions(config);
   }
+
   addMessage("agent", data.reply, `intent: ${data.intent}`, actions);
+
   if (config) {
     setDraftActionsVisible(true, config);
   } else {
     setDraftActionsVisible(false);
   }
+
   if (["create_reminder", "list_reminders", "update_reminder", "delete_reminder", "snooze_reminder", "mark_done", "plan_confirm"].includes(data.intent)) {
     await refreshReminderList();
   }
@@ -388,24 +399,28 @@ form.addEventListener("submit", async (event) => {
 
 userIdInput.addEventListener("change", restartInboxPolling);
 userIdInput.addEventListener("input", restartInboxPolling);
+
 toggleRemindersButton.addEventListener("click", () => {
   const expanded = toggleRemindersButton.getAttribute("aria-expanded") === "true";
   setReminderPanelExpanded(!expanded);
 });
-confirmDraftButton.addEventListener("click", async () => {
-  confirmDraftButton.disabled = true;
-  cancelDraftButton.disabled = true;
-  await sendQuickReply(confirmDraftButton.dataset.message || "确认", [confirmDraftButton, cancelDraftButton]);
-});
-cancelDraftButton.addEventListener("click", async () => {
-  confirmDraftButton.disabled = true;
-  cancelDraftButton.disabled = true;
-  await sendQuickReply(cancelDraftButton.dataset.message || "取消", [confirmDraftButton, cancelDraftButton]);
-});
 
+confirmDraftButton.onclick = async () => {
+  confirmDraftButton.disabled = true;
+  cancelDraftButton.disabled = true;
+  await sendQuickReply(confirmDraftButton.dataset.message || "确认创建", [confirmDraftButton, cancelDraftButton]);
+};
+
+cancelDraftButton.onclick = async () => {
+  confirmDraftButton.disabled = true;
+  cancelDraftButton.disabled = true;
+  await sendQuickReply(cancelDraftButton.dataset.message || "取消草案", [confirmDraftButton, cancelDraftButton]);
+};
+
+messages.innerHTML = "";
 addMessage(
   "agent",
-  "可以直接试试这些话术：\n- 明天下午三点提醒我交论文初稿\n- 帮我看看我的提醒\n- 今天23点11分发送，标题运动，仅一次提醒，优先级常规",
+  "可以直接试试这些说法：\n- 明天下午三点提醒我交论文初稿\n- 帮我看看我的提醒\n- 今天23点31分发送，标题运动，仅一次提醒，优先级常规",
   "welcome"
 );
 

@@ -1680,15 +1680,6 @@ class AgentService:
         message = str(exc)
         return bool(status_code == 429 or "RESOURCE_EXHAUSTED" in message or "quota" in message.lower())
 
-    def _handle_gemini_client_error(self, exc: errors.ClientError) -> str:
-        status_code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
-        message = str(exc)
-        if status_code == 429 or "RESOURCE_EXHAUSTED" in message or "quota" in message.lower():
-            return "当前 Gemini 额度已用完，正在尝试备用模型。"
-        if status_code == 400:
-            return "当前请求没有被模型正确理解。你可以换一种更明确的说法，或者先去 /docs 手动创建提醒。"
-        return "当前智能解析服务暂时不可用。你可以稍后再试，或者先去 /docs 手动创建提醒。"
-
     def _normalize_args(self, value: Any) -> dict[str, Any]:
         if isinstance(value, str):
             try:
@@ -1698,6 +1689,173 @@ class AgentService:
         if not isinstance(value, dict):
             raise HTTPException(status_code=400, detail="Tool arguments must be a JSON object")
         return value
+
+    def _try_pending_plan_action(self, payload: AgentChatRequest, user_id: int) -> dict[str, Any] | None:
+        session_key = self._pending_plan_key(user_id, payload.session_id)
+        pending_plan = self.pending_plan_store.get(session_key)
+        if not pending_plan:
+            return None
+
+        compact = re.sub(r"\s+", "", payload.message or "")
+        confirm_words = {
+            "确认创建",
+            "确认创建草案",
+            "按草案创建",
+            "创建这些",
+            "创建草案",
+            "就按这个创建",
+        }
+        cancel_words = {
+            "取消草案",
+            "取消创建",
+            "先别创建",
+            "不创建了",
+            "算了",
+        }
+
+        if compact in confirm_words:
+            created_items: list[dict[str, Any]] = []
+            for spec in pending_plan.get("reminders", []):
+                if not isinstance(spec, dict):
+                    continue
+                tool_payload = {
+                    "title": spec.get("title"),
+                    "content": spec.get("content"),
+                    "source_text": pending_plan.get("source_text") or payload.message,
+                    "remind_time": spec.get("remind_time"),
+                    "repeat_type": spec.get("repeat_type") or "none",
+                    "repeat_value": spec.get("repeat_value"),
+                    "priority": spec.get("priority") or "medium",
+                    "channel_type": spec.get("channel_type") or payload.channel,
+                }
+                if not tool_payload["title"] or not tool_payload["remind_time"]:
+                    continue
+                created_items.append(self._execute_tool("create_reminder", tool_payload, user_id, payload.channel))
+
+            self.pending_plan_store.pop(session_key, None)
+            if not created_items:
+                return {
+                    "intent": "plan_confirm",
+                    "reply": "这份草案里没有可创建的提醒，所以我还没有写入系统。你可以换个说法让我重新整理。",
+                    "tool_payload": pending_plan,
+                    "tool_result": {"count": 0, "items": []},
+                }
+
+            lines = [f"已按草案为你创建 {len(created_items)} 条提醒："]
+            for item in created_items[:5]:
+                lines.append(f"- {self._format_display_time(item.get('next_remind_time'))} {item.get('title') or '未命名提醒'}")
+            if len(created_items) > 5:
+                lines.append("其余提醒也已经一并创建。")
+            return {
+                "intent": "plan_confirm",
+                "reply": "\n".join(lines),
+                "tool_payload": pending_plan,
+                "tool_result": {"count": len(created_items), "items": created_items},
+            }
+
+        if compact in cancel_words:
+            self.pending_plan_store.pop(session_key, None)
+            return {
+                "intent": "plan_cancel",
+                "reply": "好的，这份提醒草案我先取消了，没有写入系统。你想重新调整时再告诉我。",
+                "tool_payload": pending_plan,
+                "tool_result": None,
+            }
+
+        return None
+
+    async def _try_model_plan_create(self, payload: AgentChatRequest, timezone: str, user_id: int) -> dict[str, Any] | None:
+        if not self._looks_like_plan_request(payload.message):
+            return None
+
+        extracted = None
+        if self.gemini_service.is_configured:
+            try:
+                extracted = await self._extract_plan_json_with_gemini(payload.message, timezone, payload.channel)
+            except errors.ClientError as exc:
+                if not self._should_fallback_to_modelscope(exc):
+                    return None
+            except Exception:
+                pass
+
+        if extracted is None and self.modelscope_service.is_configured:
+            try:
+                extracted = await self._extract_plan_json_with_modelscope(payload.message, timezone, payload.channel)
+            except Exception:
+                return None
+
+        if not extracted:
+            return None
+
+        if extracted.get("need_follow_up"):
+            return {
+                "intent": "plan_reminders",
+                "reply": extracted.get("reply") or "我还需要补充一点信息，才能帮你整理提醒草案。",
+                "tool_payload": extracted,
+                "tool_result": None,
+            }
+
+        reminder_specs = extracted.get("reminders") or []
+        if not isinstance(reminder_specs, list) or not reminder_specs:
+            return None
+
+        normalized_specs: list[dict[str, Any]] = []
+        for spec in reminder_specs[:8]:
+            if not isinstance(spec, dict):
+                continue
+            normalized = {
+                "title": spec.get("title"),
+                "content": spec.get("content"),
+                "source_text": payload.message,
+                "remind_time": spec.get("remind_time"),
+                "repeat_type": spec.get("repeat_type") or "none",
+                "repeat_value": spec.get("repeat_value"),
+                "priority": spec.get("priority") or "medium",
+                "channel_type": spec.get("channel_type") or payload.channel,
+            }
+            if not normalized["title"] or not normalized["remind_time"]:
+                continue
+            normalized_specs.append(normalized)
+
+        if not normalized_specs:
+            return None
+
+        normalized_specs = self._expand_weekly_plan_specs(payload.message, normalized_specs, timezone)
+
+        session_key = self._pending_plan_key(user_id, payload.session_id)
+        self.pending_plan_store[session_key] = {
+            "summary": extracted.get("summary"),
+            "reply": extracted.get("reply"),
+            "reminders": normalized_specs,
+            "source_text": payload.message,
+            "created_at": datetime.now().isoformat(),
+        }
+
+        summary = str(extracted.get("summary") or "").strip()
+        reply_lines = []
+        if summary:
+            reply_lines.append(f"{summary}（以下仅为草案，尚未创建）")
+        else:
+            reply_lines.append("我先为你整理了一份提醒草案，当前还没有真正创建。")
+        reply_lines.append(f"下面是 {len(normalized_specs)} 条待确认的提醒：")
+        reply_lines.extend(self._format_plan_draft_lines(normalized_specs))
+        reply_lines.append("只有在你明确回复“确认创建”后，我才会真正创建这些提醒。回复“取消草案”即可放弃。")
+
+        return {
+            "intent": "plan_draft",
+            "reply": "\n".join(reply_lines),
+            "tool_payload": extracted,
+            "tool_result": {"count": len(normalized_specs), "items": normalized_specs},
+        }
+
+    def _handle_gemini_client_error(self, exc: errors.ClientError) -> str:
+        status_code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+        message = str(exc)
+        if status_code == 429 or "RESOURCE_EXHAUSTED" in message or "quota" in message.lower():
+            return "当前 Gemini 配额已用完，正在尝试备用模型。"
+        if status_code == 400:
+            return "当前请求没有被模型正确理解。你可以换一种更明确的说法，或者先去 /docs 手动创建提醒。"
+        return "当前智能解析服务暂时不可用。你可以稍后再试，或者先去 /docs 手动创建提醒。"
 
     def _log(self, payload: AgentChatRequest, intent: str | None, tool_name: str | None, tool_payload: dict[str, Any] | None, reply: str) -> None:
         self.conversation_repo.create(

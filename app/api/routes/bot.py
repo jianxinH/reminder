@@ -11,6 +11,7 @@ from app.services.agent_service import AgentService
 from app.services.telegram_service import TelegramService
 from app.services.user_service import UserService
 from app.services.wecom_callback_service import WeComCallbackService
+from app.services.wecom_command_service import WeComCommandService
 from app.services.wecom_service import WeComService
 
 router = APIRouter(prefix="/api/bot", tags=["bot"])
@@ -88,21 +89,25 @@ async def wecom_callback_receive(
             user = user_service.get_or_create_by_wecom_userid(from_user, display_name=display_name)
             content = (message.get("Content") or "").strip()
             if content:
-                result = await AgentService(db).chat(
-                    AgentChatRequest(
-                        user_id=user.id,
-                        channel="wecom",
-                        session_id=f"wecom_{from_user}",
-                        message=content,
+                command_reply = WeComCommandService(db).try_handle(user.id, content)
+                if command_reply is not None:
+                    await WeComService().send_message(from_user, command_reply)
+                else:
+                    result = await AgentService(db).chat(
+                        AgentChatRequest(
+                            user_id=user.id,
+                            channel="wecom",
+                            session_id=f"wecom_{from_user}",
+                            message=content,
+                        )
                     )
-                )
-                await WeComService().send_message(from_user, result["reply"])
+                    await WeComService().send_message(from_user, result["reply"])
         elif msg_type == "event" and event == "enter_agent" and from_user:
             user_service = UserService(db)
             user_service.get_or_create_by_wecom_userid(from_user, display_name=display_name)
             await WeComService().send_message(
                 from_user,
-                "欢迎使用提醒助手。你可以直接发送一句话，比如：明天下午三点提醒我开会。",
+                "欢迎使用提醒助手。你可以直接发送一句话，例如：明天下午三点提醒我开会；也可以发送“帮助”查看快捷命令。",
             )
     except Exception:
         logger.exception("WeCom callback handling failed. payload=%s plain_xml=%s", message, plain_xml)
