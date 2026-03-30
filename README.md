@@ -158,6 +158,19 @@ python run_daily.py
 - `reports/` 日报文件
 - `data/scout.db` 数据库文件
 
+如果你希望工作流自动把日报提交回仓库并推送到企业微信，请额外配置这些 GitHub Secrets：
+
+- `WECOM_CORP_ID`
+- `WECOM_AGENT_ID`
+- `WECOM_SECRET`
+- `WECOM_TOUSER`
+
+工作流会：
+
+- 生成当天日报
+- 自动提交 `reports/YYYY-MM-DD.md` 回当前分支
+- 通过企业微信应用消息发送一条精简版日报，并附上 GitHub 中的完整日报链接
+
 ---
 
 ## 输出结果

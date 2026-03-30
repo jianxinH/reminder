@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from app.scout.config.settings import get_settings
 from app.scout.delivery.markdown_writer import write_markdown_report
+from app.scout.delivery.wecom_sender import build_wecom_message
 from app.scout.fetchers.rss_fetcher import fetch_all_rss_items
 from app.scout.main import filter_recent_items, run_pipeline
 from app.scout.pipeline.classify import classify_items
@@ -101,6 +102,28 @@ class ScoutPipelineTests(unittest.TestCase):
             report_path = write_markdown_report("# demo", tmpdir, "Asia/Shanghai")
             repository.insert_report(report_path, item_count=1)
             self.assertTrue(report_path.exists())
+
+    def test_build_wecom_message(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report_path = Path(tmpdir) / "2026-03-30.md"
+            report_path.write_text(
+                "# AI Daily Scout 日报 - 2026-03-30\n\n"
+                "## 今日概览\n\n"
+                "### 1. 开源 Agent 工具包\n\n"
+                "- 摘要：一个新的开源 Agent 工具包发布。\n\n"
+                "### 2. 新模型发布\n\n"
+                "- 摘要：一个新的模型版本上线。\n",
+                encoding="utf-8",
+            )
+
+            message = build_wecom_message(
+                report_path=str(report_path),
+                report_url="https://github.com/example/reports/2026-03-30.md",
+            )
+
+            self.assertIn("AI Daily Scout 日报 - 2026-03-30", message)
+            self.assertIn("1. 开源 Agent 工具包", message)
+            self.assertIn("完整日报：https://github.com/example/reports/2026-03-30.md", message)
 
     def test_fetch_all_rss_items_with_mocked_network(self) -> None:
         rss_xml = """<?xml version="1.0" encoding="UTF-8"?>
