@@ -85,10 +85,10 @@ class AgentService:
                     try:
                         return await self._run_modelscope_chat(payload, user.timezone, user.id)
                     except Exception:
-                        reply = "Gemini 额度已用完，魔搭备用模型也暂时不可用。你可以稍后再试，或者先去 /docs 手动创建提醒。"
+                        reply = self._build_provider_unavailable_reply(payload.channel, quota_exhausted=True)
                         self._log(payload, "provider_error", None, None, reply)
                         return {"intent": "provider_error", "reply": reply, "tool_result": None}
-                reply = self._handle_gemini_client_error(exc)
+                reply = self._handle_gemini_client_error(exc, payload.channel)
                 self._log(payload, "provider_error", None, None, reply)
                 return {"intent": "provider_error", "reply": reply, "tool_result": None}
             except Exception:
@@ -98,11 +98,11 @@ class AgentService:
             try:
                 return await self._run_modelscope_chat(payload, user.timezone, user.id)
             except Exception:
-                reply = "当前智能解析暂时不可用。你可以稍后再试，或者先去 /docs 手动创建提醒。"
+                reply = self._build_provider_unavailable_reply(payload.channel)
                 self._log(payload, "provider_error", None, None, reply)
                 return {"intent": "provider_error", "reply": reply, "tool_result": None}
 
-        reply = "还没有配置可用的大模型密钥。请先在 .env 里填写 GEMINI_API_KEY 或 MODELSCOPE_API_KEY。"
+        reply = self._build_configuration_error_reply(payload.channel)
         self._log(payload, "configuration_error", None, None, reply)
         return {"intent": "configuration_error", "reply": reply, "tool_result": None}
 
@@ -148,7 +148,7 @@ class AgentService:
                 config=config,
             )
 
-        reply = self._finalize_reply(getattr(current_response, "text", ""), last_tool_name, last_tool_result)
+        reply = self._finalize_reply(getattr(current_response, "text", ""), last_tool_name, last_tool_result, payload.channel)
         intent = self._map_intent(last_tool_name)
         self._log(payload, intent, last_tool_name, last_tool_payload, reply)
         return {"intent": intent, "reply": reply, "tool_result": last_tool_result}
@@ -193,12 +193,12 @@ class AgentService:
                     last_tool_result = result
                 continue
 
-            reply = self._finalize_reply(content, last_tool_name, last_tool_result)
+            reply = self._finalize_reply(content, last_tool_name, last_tool_result, payload.channel)
             intent = self._map_intent(last_tool_name)
             self._log(payload, intent, last_tool_name, last_tool_payload, reply)
             return {"intent": intent, "reply": reply, "tool_result": last_tool_result}
 
-        reply = self._finalize_reply("", last_tool_name, last_tool_result)
+        reply = self._finalize_reply("", last_tool_name, last_tool_result, payload.channel)
         intent = self._map_intent(last_tool_name)
         self._log(payload, intent, last_tool_name, last_tool_payload, reply)
         return {"intent": intent, "reply": reply, "tool_result": last_tool_result}
@@ -1645,12 +1645,37 @@ class AgentService:
             target = target + timedelta(days=1)
         return target.isoformat()
 
-    def _finalize_reply(self, model_reply: str | None, tool_name: str | None, tool_result: dict[str, Any] | None) -> str:
+    def _finalize_reply(
+        self,
+        model_reply: str | None,
+        tool_name: str | None,
+        tool_result: dict[str, Any] | None,
+        channel: str,
+    ) -> str:
         explicit = self._build_tool_reply(tool_name, tool_result)
         if explicit:
             return explicit
         text = (model_reply or "").strip()
-        return text or "我暂时没有拿到明确结果，请稍后再试，或者去 /docs 手动查看提醒。"
+        return text or self._build_no_result_reply(channel)
+
+    def _build_no_result_reply(self, channel: str) -> str:
+        if channel == "wecom":
+            return "我暂时还没整理出明确结果。你可以换一种更直接的说法，我会继续帮你处理。"
+        return "我暂时还没拿到明确结果，请稍后再试，或者去 /docs 手动查看提醒。"
+
+    def _build_provider_unavailable_reply(self, channel: str, quota_exhausted: bool = False) -> str:
+        if channel == "wecom":
+            if quota_exhausted:
+                return "当前智能解析额度暂时用完了。你可以稍后再试，或者换一种更简短直接的说法发给我。"
+            return "当前智能解析暂时不可用。你可以稍后再试，或者换一种更明确的说法继续发给我。"
+        if quota_exhausted:
+            return "Gemini 额度已用完，备用模型也暂时不可用。你可以稍后再试，或者先去 /docs 手动创建提醒。"
+        return "当前智能解析暂时不可用。你可以稍后再试，或者先去 /docs 手动创建提醒。"
+
+    def _build_configuration_error_reply(self, channel: str) -> str:
+        if channel == "wecom":
+            return "当前智能解析还没有配置好。你先把需求发给我也没关系，稍后修复后可以再试一次。"
+        return "还没有配置可用的大模型密钥。请先在 .env 里填写 GEMINI_API_KEY 或 MODELSCOPE_API_KEY。"
 
     def _build_tool_reply(self, tool_name: str | None, tool_result: dict[str, Any] | None) -> str | None:
         if not tool_name or not tool_result:
@@ -1862,14 +1887,18 @@ class AgentService:
             "tool_result": {"count": len(normalized_specs), "items": normalized_specs},
         }
 
-    def _handle_gemini_client_error(self, exc: errors.ClientError) -> str:
+    def _handle_gemini_client_error(self, exc: errors.ClientError, channel: str) -> str:
         status_code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
         message = str(exc)
         if status_code == 429 or "RESOURCE_EXHAUSTED" in message or "quota" in message.lower():
+            if channel == "wecom":
+                return "当前智能解析额度有点紧张，我正在尝试备用模型。你稍等一下，或者过一会儿再发我一次。"
             return "当前 Gemini 配额已用完，正在尝试备用模型。"
         if status_code == 400:
+            if channel == "wecom":
+                return "我这次没有完全理解你的意思。你可以换一种更明确的说法继续告诉我。"
             return "当前请求没有被模型正确理解。你可以换一种更明确的说法，或者先去 /docs 手动创建提醒。"
-        return "当前智能解析服务暂时不可用。你可以稍后再试，或者先去 /docs 手动创建提醒。"
+        return self._build_provider_unavailable_reply(channel)
 
     def _log(self, payload: AgentChatRequest, intent: str | None, tool_name: str | None, tool_payload: dict[str, Any] | None, reply: str) -> None:
         self.conversation_repo.create(
