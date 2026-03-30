@@ -1,0 +1,49 @@
+name: AI Daily Scout
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "15 1 * * *"
+
+jobs:
+  build-report:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run AI Daily Scout
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-5.4' }}
+          SCOUT_DATABASE_PATH: data/scout.db
+          SCOUT_SOURCES_FILE: app/scout/config/sources.yaml
+          REPORT_TIMEZONE: ${{ vars.REPORT_TIMEZONE || 'Asia/Shanghai' }}
+          REPORT_LANGUAGE: ${{ vars.REPORT_LANGUAGE || 'zh-CN' }}
+          REPORT_TOP_N: ${{ vars.REPORT_TOP_N || '20' }}
+          SCOUT_RECENT_DAYS: ${{ vars.SCOUT_RECENT_DAYS || '3' }}
+          SCOUT_MAX_SUMMARY_ITEMS: ${{ vars.SCOUT_MAX_SUMMARY_ITEMS || '30' }}
+          SCOUT_LOG_LEVEL: INFO
+        run: python run_daily.py
+
+      - name: Upload report artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-daily-scout-report
+          path: |
+            reports/
+            data/scout.db
+          if-no-files-found: error

@@ -274,6 +274,109 @@ class ScoutPipelineTests(unittest.TestCase):
             self.assertIn("开源 Agent 工具包", report_content)
             self.assertIn("适合关注 Agent 工程实践。", report_content)
 
+    def test_run_pipeline_rebuilds_report_from_database_when_no_new_items(self) -> None:
+        rss_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Example Feed</title>
+    <item>
+      <title>Open source agent toolkit</title>
+      <link>https://example.com/news/agent-toolkit</link>
+      <description>GitHub released a new open source agent toolkit.</description>
+      <pubDate>Mon, 30 Mar 2026 10:00:00 GMT</pubDate>
+      <category>open source</category>
+    </item>
+  </channel>
+</rss>
+"""
+        summary_payload = {
+            "output_text": (
+                '{"zh_title":"开源 Agent 工具包","category_suggestion":"开源",'
+                '"short_summary":"一个新的开源 Agent 工具包发布。",'
+                '"why_it_matters":"适合关注 Agent 工程实践。",'
+                '"include_in_report":true,"importance_score":85,'
+                '"confidence":0.9,"tags":["agent","open-source"]}'
+            )
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_dir = Path(tmpdir)
+            (project_dir / "data").mkdir()
+            (project_dir / "reports").mkdir()
+
+            sources_file = project_dir / "sources.yaml"
+            db_path = project_dir / "data" / "scout.db"
+            sources_file.write_text(
+                "sources:\n  - name: Example\n    url: https://example.com/rss.xml\n    enabled: true\n",
+                encoding="utf-8",
+            )
+
+            class MockGetResponse:
+                text = rss_xml
+
+                def raise_for_status(self) -> None:
+                    return None
+
+            class MockPostResponse:
+                def raise_for_status(self) -> None:
+                    return None
+
+                def json(self) -> dict:
+                    return summary_payload
+
+            old_cwd = os.getcwd()
+            old_env = {
+                key: os.environ.get(key)
+                for key in (
+                    "OPENAI_API_KEY",
+                    "OPENAI_MODEL",
+                    "SCOUT_DATABASE_PATH",
+                    "SCOUT_SOURCES_FILE",
+                    "REPORT_TIMEZONE",
+                    "REPORT_LANGUAGE",
+                    "REPORT_TOP_N",
+                    "SCOUT_RECENT_DAYS",
+                    "SCOUT_MAX_SUMMARY_ITEMS",
+                    "SCOUT_LOG_LEVEL",
+                )
+            }
+            try:
+                os.chdir(project_dir)
+                os.environ["OPENAI_API_KEY"] = "test-key"
+                os.environ["OPENAI_MODEL"] = "gpt-5.4"
+                os.environ["SCOUT_DATABASE_PATH"] = str(db_path)
+                os.environ["SCOUT_SOURCES_FILE"] = str(sources_file)
+                os.environ["REPORT_TIMEZONE"] = "Asia/Shanghai"
+                os.environ["REPORT_LANGUAGE"] = "zh-CN"
+                os.environ["REPORT_TOP_N"] = "20"
+                os.environ["SCOUT_RECENT_DAYS"] = "30"
+                os.environ["SCOUT_MAX_SUMMARY_ITEMS"] = "1"
+                os.environ["SCOUT_LOG_LEVEL"] = "INFO"
+                get_settings.cache_clear()
+
+                with patch("app.scout.fetchers.rss_fetcher.httpx.get", return_value=MockGetResponse()):
+                    with patch("app.scout.pipeline.summarize.httpx.post", return_value=MockPostResponse()):
+                        first_stats = run_pipeline()
+
+                with patch("app.scout.fetchers.rss_fetcher.httpx.get", return_value=MockGetResponse()):
+                    with patch("app.scout.pipeline.summarize.httpx.post", return_value=MockPostResponse()) as mock_post:
+                        second_stats = run_pipeline()
+            finally:
+                os.chdir(old_cwd)
+                for key, value in old_env.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+                get_settings.cache_clear()
+
+            self.assertEqual(1, first_stats["inserted_count"])
+            self.assertEqual(0, second_stats["inserted_count"])
+            self.assertEqual(0, second_stats["summarized_count"])
+            self.assertEqual(1, second_stats["included_count"])
+            self.assertEqual(1, second_stats["rebuilt_from_db_count"])
+            self.assertEqual(0, mock_post.call_count)
+
 
 if __name__ == "__main__":
     unittest.main()

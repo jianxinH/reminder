@@ -140,6 +140,24 @@ python -m app.scout.main
 python run_daily.py
 ```
 
+### GitHub Actions 定时运行
+
+仓库已包含工作流：
+
+```text
+.github/workflows/ai-daily-scout.yml
+```
+
+使用前请在 GitHub 仓库里配置：
+
+- `OPENAI_API_KEY`：Actions Secret
+- 可选 Actions Variables：`OPENAI_MODEL`、`REPORT_TIMEZONE`、`REPORT_LANGUAGE`、`REPORT_TOP_N`、`SCOUT_RECENT_DAYS`、`SCOUT_MAX_SUMMARY_ITEMS`
+
+工作流支持手动触发和每日定时运行，执行后会上传：
+
+- `reports/` 日报文件
+- `data/scout.db` 数据库文件
+
 ---
 
 ## 输出结果
@@ -148,6 +166,8 @@ AI Daily Scout 运行后会生成：
 
 - SQLite 数据库：`data/scout.db`
 - 当日日报：`reports/YYYY-MM-DD.md`
+
+如果当天没有新增文章，程序会尝试从数据库中取最近时间窗内的已存文章，重新生成当天日报。
 
 ---
 

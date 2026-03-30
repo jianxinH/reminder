@@ -114,6 +114,7 @@ def run_pipeline() -> dict[str, Any]:
     inserted_count = 0
     summarized_count = 0
     summary_limit = max(0, settings.max_summary_items)
+    rebuilt_from_db_count = 0
 
     for index, item in enumerate(classified_items, start=1):
         article_id = repository.insert_article(item)
@@ -131,6 +132,14 @@ def run_pipeline() -> dict[str, Any]:
         summarized_items.append({**item, **summary_result})
 
     included_items = [item for item in summarized_items if item.get("include_in_report", True)]
+    if not included_items:
+        logger.info("本次没有新增可收录内容，尝试从数据库重建最近 %s 天日报。", settings.recent_days)
+        stored_items = repository.get_recent_report_items(
+            recent_days=settings.recent_days,
+            limit=settings.report_top_n,
+        )
+        included_items = [item for item in stored_items if item.get("include_in_report", True)]
+        rebuilt_from_db_count = len(included_items)
 
     report_markdown = build_daily_report(
         items=included_items,
@@ -153,6 +162,7 @@ def run_pipeline() -> dict[str, Any]:
         "inserted_count": inserted_count,
         "summarized_count": summarized_count,
         "included_count": len(included_items),
+        "rebuilt_from_db_count": rebuilt_from_db_count,
         "report_path": str(report_path),
     }
     logger.info("处理完成: %s", stats)
@@ -170,6 +180,7 @@ def main() -> None:
         print(f"写入数据库条数: {stats['inserted_count']}")
         print(f"调用摘要条数: {stats['summarized_count']}")
         print(f"收录到日报条数: {stats['included_count']}")
+        print(f"数据库重建条数: {stats['rebuilt_from_db_count']}")
         print(f"日报输出路径: {stats['report_path']}")
     except Exception as exc:
         logger.exception("主流程运行失败: %s", exc)

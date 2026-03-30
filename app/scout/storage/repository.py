@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 
@@ -104,6 +104,62 @@ class ArticleRepository:
         finally:
             conn.close()
 
+    def get_recent_report_items(self, recent_days: int, limit: int) -> list[dict]:
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT
+                    a.id,
+                    a.title,
+                    a.url,
+                    a.source,
+                    a.published_at,
+                    a.summary,
+                    a.raw_category,
+                    s.zh_title,
+                    s.category_suggestion,
+                    s.short_summary,
+                    s.why_it_matters,
+                    s.include_in_report,
+                    s.importance_score,
+                    s.confidence,
+                    s.tags,
+                    s.model_name
+                FROM articles a
+                LEFT JOIN article_summaries s
+                    ON s.article_id = a.id
+                WHERE a.published_at >= ?
+                ORDER BY COALESCE(s.importance_score, 50) DESC, a.published_at DESC, a.id DESC
+                LIMIT ?
+                """,
+                (cutoff_timestamp(recent_days), limit),
+            ).fetchall()
+            items: list[dict] = []
+            for row in rows:
+                items.append(
+                    {
+                        "title": row["title"],
+                        "url": row["url"],
+                        "source": row["source"],
+                        "published_at": row["published_at"],
+                        "summary": row["summary"],
+                        "raw_category": row["raw_category"],
+                        "zh_title": row["zh_title"] or row["title"],
+                        "category_suggestion": row["category_suggestion"] or row["raw_category"] or "其他",
+                        "short_summary": row["short_summary"] or row["summary"] or row["title"],
+                        "why_it_matters": row["why_it_matters"] or "来自数据库的近期已存内容。",
+                        "include_in_report": bool(row["include_in_report"]) if row["include_in_report"] is not None else True,
+                        "importance_score": row["importance_score"] if row["importance_score"] is not None else 50,
+                        "confidence": row["confidence"] if row["confidence"] is not None else 0.0,
+                        "tags": parse_tags(row["tags"]),
+                        "model_name": row["model_name"] or "",
+                    }
+                )
+            return items
+        finally:
+            conn.close()
+
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.database_path)
         conn.row_factory = sqlite3.Row
@@ -112,3 +168,18 @@ class ArticleRepository:
 
 def timestamp() -> str:
     return datetime.utcnow().isoformat(timespec="seconds")
+
+
+def cutoff_timestamp(recent_days: int) -> str:
+    cutoff = datetime.utcnow() - timedelta(days=max(0, recent_days))
+    return cutoff.replace(microsecond=0).isoformat(timespec="seconds")
+
+
+def parse_tags(value: str | None) -> list[str]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    return parsed if isinstance(parsed, list) else []
