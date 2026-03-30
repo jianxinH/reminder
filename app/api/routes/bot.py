@@ -1,9 +1,10 @@
 import logging
+import time
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import SessionLocal, get_db
 from app.schemas.agent import AgentChatRequest
 from app.schemas.bot import TelegramWebhookRequest
 from app.schemas.common import APIResponse
@@ -16,6 +17,72 @@ from app.services.wecom_service import WeComService
 
 router = APIRouter(prefix="/api/bot", tags=["bot"])
 logger = logging.getLogger(__name__)
+
+_WECOM_DEDUP_TTL_SECONDS = 600
+_wecom_seen_messages: dict[str, float] = {}
+
+
+def _prune_wecom_seen_messages(now: float) -> None:
+    expired_keys = [key for key, seen_at in _wecom_seen_messages.items() if now - seen_at > _WECOM_DEDUP_TTL_SECONDS]
+    for key in expired_keys:
+        _wecom_seen_messages.pop(key, None)
+
+
+def _build_wecom_message_key(message: dict[str, str]) -> str:
+    msg_id = (message.get("MsgId") or "").strip()
+    if msg_id:
+        return f"msgid:{msg_id}"
+
+    from_user = (message.get("FromUserName") or "").strip()
+    create_time = (message.get("CreateTime") or "").strip()
+    msg_type = (message.get("MsgType") or "").strip().lower()
+    event = (message.get("Event") or "").strip().lower()
+    event_key = (message.get("EventKey") or "").strip()
+    content = (message.get("Content") or "").strip()
+    return f"fallback:{from_user}:{create_time}:{msg_type}:{event}:{event_key}:{content}"
+
+
+async def _process_wecom_message(message: dict[str, str]) -> None:
+    db = SessionLocal()
+    try:
+        msg_type = (message.get("MsgType") or "").strip().lower()
+        from_user = (message.get("FromUserName") or "").strip()
+        event = (message.get("Event") or "").strip().lower()
+        display_name = (message.get("UserName") or "").strip() or from_user
+
+        logger.info("WeCom callback received: msg_type=%s event=%s from_user=%s payload=%s", msg_type, event, from_user, message)
+
+        if msg_type == "text" and from_user:
+            user_service = UserService(db)
+            user = user_service.get_or_create_by_wecom_userid(from_user, display_name=display_name)
+            content = (message.get("Content") or "").strip()
+            if content:
+                command_reply = WeComCommandService(db).try_handle(user.id, content)
+                if command_reply is not None:
+                    await WeComService().send_message(from_user, command_reply)
+                else:
+                    result = await AgentService(db).chat(
+                        AgentChatRequest(
+                            user_id=user.id,
+                            channel="wecom",
+                            session_id=f"wecom_{from_user}",
+                            message=content,
+                        )
+                    )
+                    await WeComService().send_message(from_user, result["reply"])
+            return
+
+        if msg_type == "event" and event == "enter_agent" and from_user:
+            user_service = UserService(db)
+            user_service.get_or_create_by_wecom_userid(from_user, display_name=display_name)
+            await WeComService().send_message(
+                from_user,
+                "欢迎使用提醒助手。你可以直接发送一句话，例如：明天下午三点提醒我开会；也可以发送“帮助”查看快捷命令。",
+            )
+    except Exception:
+        logger.exception("WeCom callback handling failed. payload=%s", message)
+    finally:
+        db.close()
 
 
 @router.post("/telegram/webhook", response_model=APIResponse[dict])
@@ -60,7 +127,7 @@ async def wecom_callback_verify(
 @router.post("/wecom/callback", include_in_schema=False)
 async def wecom_callback_receive(
     request: Request,
-    db: Session = Depends(get_db),
+    background_tasks: BackgroundTasks,
     msg_signature: str = Query(...),
     timestamp: str = Query(...),
     nonce: str = Query(...),
@@ -76,40 +143,13 @@ async def wecom_callback_receive(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     message = service.parse_message(plain_xml)
-    msg_type = (message.get("MsgType") or "").strip().lower()
-    from_user = (message.get("FromUserName") or "").strip()
-    event = (message.get("Event") or "").strip().lower()
-    display_name = (message.get("UserName") or "").strip() or from_user
+    now = time.time()
+    _prune_wecom_seen_messages(now)
+    message_key = _build_wecom_message_key(message)
+    if message_key in _wecom_seen_messages:
+        logger.info("Skipping duplicate WeCom callback: key=%s payload=%s", message_key, message)
+        return Response(content="success", media_type="text/plain")
 
-    try:
-        logger.info("WeCom callback received: msg_type=%s event=%s from_user=%s payload=%s", msg_type, event, from_user, message)
-
-        if msg_type == "text" and from_user:
-            user_service = UserService(db)
-            user = user_service.get_or_create_by_wecom_userid(from_user, display_name=display_name)
-            content = (message.get("Content") or "").strip()
-            if content:
-                command_reply = WeComCommandService(db).try_handle(user.id, content)
-                if command_reply is not None:
-                    await WeComService().send_message(from_user, command_reply)
-                else:
-                    result = await AgentService(db).chat(
-                        AgentChatRequest(
-                            user_id=user.id,
-                            channel="wecom",
-                            session_id=f"wecom_{from_user}",
-                            message=content,
-                        )
-                    )
-                    await WeComService().send_message(from_user, result["reply"])
-        elif msg_type == "event" and event == "enter_agent" and from_user:
-            user_service = UserService(db)
-            user_service.get_or_create_by_wecom_userid(from_user, display_name=display_name)
-            await WeComService().send_message(
-                from_user,
-                "欢迎使用提醒助手。你可以直接发送一句话，例如：明天下午三点提醒我开会；也可以发送“帮助”查看快捷命令。",
-            )
-    except Exception:
-        logger.exception("WeCom callback handling failed. payload=%s plain_xml=%s", message, plain_xml)
-
+    _wecom_seen_messages[message_key] = now
+    background_tasks.add_task(_process_wecom_message, message)
     return Response(content="success", media_type="text/plain")
