@@ -60,8 +60,20 @@ class WeComCallbackService:
     def parse_message(self, xml_text: str) -> dict[str, str]:
         root = ET.fromstring(xml_text)
         result: dict[str, str] = {}
+
+        def walk(node: ET.Element, prefix: str = "") -> None:
+            key = f"{prefix}{node.tag}" if prefix else node.tag
+            children = list(node)
+            text = (node.text or "").strip()
+            if text:
+                result[key] = text
+            elif not children and key not in result:
+                result[key] = ""
+            for child in children:
+                walk(child, f"{key}_")
+
         for child in root:
-            result[child.tag] = child.text or ""
+            walk(child)
         return result
 
     def _pkcs7_unpad(self, text: bytes) -> bytes:

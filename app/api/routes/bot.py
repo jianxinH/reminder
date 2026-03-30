@@ -33,7 +33,7 @@ def _build_wecom_message_key(message: dict[str, str]) -> str:
     if msg_id:
         return f"msgid:{msg_id}"
 
-    from_user = (message.get("FromUserName") or "").strip()
+    from_user = _extract_wecom_actor_id(message)
     create_time = (message.get("CreateTime") or "").strip()
     msg_type = (message.get("MsgType") or "").strip().lower()
     event = (message.get("Event") or "").strip().lower()
@@ -42,13 +42,44 @@ def _build_wecom_message_key(message: dict[str, str]) -> str:
     return f"fallback:{from_user}:{create_time}:{msg_type}:{event}:{event_key}:{content}"
 
 
+def _extract_wecom_actor_id(message: dict[str, str]) -> str:
+    candidates = (
+        "Sender_UserID",
+        "Sender_OpenUserID",
+        "Sender_ExternalUserID",
+        "UserID",
+        "OpenUserID",
+        "ExternalUserID",
+        "FromUserName",
+    )
+    for key in candidates:
+        value = (message.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _extract_wecom_display_name(message: dict[str, str], actor_id: str) -> str:
+    candidates = (
+        "Sender_Name",
+        "Sender_NickName",
+        "UserName",
+        "FromUserName",
+    )
+    for key in candidates:
+        value = (message.get(key) or "").strip()
+        if value:
+            return value
+    return actor_id
+
+
 async def _process_wecom_message(message: dict[str, str]) -> None:
     db = SessionLocal()
     try:
         msg_type = (message.get("MsgType") or "").strip().lower()
-        from_user = (message.get("FromUserName") or "").strip()
+        from_user = _extract_wecom_actor_id(message)
         event = (message.get("Event") or "").strip().lower()
-        display_name = (message.get("UserName") or "").strip() or from_user
+        display_name = _extract_wecom_display_name(message, from_user)
 
         logger.info("WeCom callback received: msg_type=%s event=%s from_user=%s payload=%s", msg_type, event, from_user, message)
 
