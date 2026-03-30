@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
@@ -73,6 +74,14 @@ def _extract_wecom_display_name(message: dict[str, str], actor_id: str) -> str:
     return actor_id
 
 
+def _normalize_wecom_content(content: str) -> str:
+    text = (content or "").strip()
+    if not text:
+        return ""
+    text = re.sub(r"^(?:@\S+\s*)+", "", text).strip()
+    return text
+
+
 async def _process_wecom_message(message: dict[str, str]) -> None:
     db = SessionLocal()
     try:
@@ -86,7 +95,7 @@ async def _process_wecom_message(message: dict[str, str]) -> None:
         if msg_type == "text" and from_user:
             user_service = UserService(db)
             user = user_service.get_or_create_by_wecom_userid(from_user, display_name=display_name)
-            content = (message.get("Content") or "").strip()
+            content = _normalize_wecom_content(message.get("Content") or "")
             if content:
                 command_reply = WeComCommandService(db).try_handle(user.id, content)
                 if command_reply is not None:
