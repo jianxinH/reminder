@@ -1,0 +1,10 @@
+sources:
+  - name: OpenAI News
+    url: https://openai.com/news/rss.xml
+    enabled: true
+  - name: Hugging Face Blog
+    url: https://huggingface.co/blog/feed.xml
+    enabled: true
+  - name: Anthropic News
+    url: https://www.anthropic.com/news/rss.xml
+    enabled: false

@@ -8,3 +8,4 @@ reminder.db
 .env
 *.pem
 data/
+reports/
