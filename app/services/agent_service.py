@@ -929,7 +929,7 @@ class AgentService:
             return None
 
         normalized_specs: list[dict[str, Any]] = []
-        for spec in reminder_specs[:8]:
+        for spec in reminder_specs:
             if not isinstance(spec, dict):
                 continue
             normalized = {
@@ -1080,14 +1080,28 @@ class AgentService:
                 ordered_dates.append(date_key)
 
         lines: list[str] = []
-        for date_key in ordered_dates[:7]:
+        for date_key in ordered_dates:
             lines.append(f"{date_key}:")
-            for item in grouped.get(date_key, [])[:4]:
+            for item in grouped.get(date_key, []):
                 lines.append(f"- {item['time']} {item['title']}")
-        remaining_days = len(ordered_dates) - min(len(ordered_dates), 7)
+        remaining_days = 0
         if remaining_days > 0:
             lines.append(f"另有 {remaining_days} 天的草案已一并整理。")
         return lines
+
+    def _sanitize_plan_summary(self, summary: str) -> str:
+        text = (summary or "").strip()
+        if not text:
+            return ""
+
+        patterns = [
+            r"共(?:整理出|设定|安排|生成)?\s*[0-9一二三四五六七八九十百零两]+\s*(?:个)?(?:关键节点|条提醒|条待确认的提醒|项安排)",
+            r"下面是\s*[0-9一二三四五六七八九十百零两]+\s*条待确认的提醒",
+        ]
+        for pattern in patterns:
+            text = re.sub(pattern, "", text)
+
+        return re.sub(r"[，、；：]\s*$", "", text).strip()
 
     def _resolve_reminder_targets(self, message: str, user_id: int, session_id: str | None = None, prefer_pending: bool = True) -> list[Any]:
         id_matches = self._extract_explicit_reminder_ids(message)
@@ -1800,7 +1814,7 @@ class AgentService:
             return None
 
         normalized_specs: list[dict[str, Any]] = []
-        for spec in reminder_specs[:8]:
+        for spec in reminder_specs:
             if not isinstance(spec, dict):
                 continue
             normalized = {
@@ -1831,7 +1845,7 @@ class AgentService:
             "created_at": datetime.now().isoformat(),
         }
 
-        summary = str(extracted.get("summary") or "").strip()
+        summary = self._sanitize_plan_summary(str(extracted.get("summary") or ""))
         reply_lines = []
         if summary:
             reply_lines.append(f"{summary}（以下仅为草案，尚未创建）")
