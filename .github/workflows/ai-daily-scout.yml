@@ -1,6 +1,9 @@
 name: AI Daily Scout
 
 on:
+  push:
+    branches:
+      - codex/ai-daily-scout
   workflow_dispatch:
   schedule:
     - cron: "15 1 * * *"
