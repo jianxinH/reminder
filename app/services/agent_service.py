@@ -1547,8 +1547,26 @@ class AgentService:
         if recovered.get("title") and recovered.get("remind_time"):
             recovered["need_follow_up"] = False
             recovered["reply"] = ""
+        elif recovered.get("intent") == "create_reminder":
+            recovered["need_follow_up"] = True
+            recovered["reply"] = self._build_create_follow_up_reply(message, str(recovered.get("title") or "").strip())
 
         return recovered
+
+    def _build_create_follow_up_reply(self, message: str, title: str) -> str:
+        compact = re.sub(r"\s+", "", message or "")
+        subject = title or "这件事"
+        if any(term in compact for term in ("上午", "早上", "清晨")):
+            return f"可以，我先记下了。你想在明天上午几点提醒你{subject}？比如 9 点或 10 点半。"
+        if any(term in compact for term in ("中午",)):
+            return f"可以，你想在中午几点提醒你{subject}？比如 12 点或 12 点半。"
+        if any(term in compact for term in ("下午",)):
+            return f"可以，你想在明天下午几点提醒你{subject}？比如 3 点或 4 点半。"
+        if any(term in compact for term in ("晚上", "今晚", "夜里")):
+            return f"可以，你想在晚上几点提醒你{subject}？比如 8 点或 9 点半。"
+        if any(term in compact for term in ("明天", "后天", "今天", "周", "星期")):
+            return f"可以，你想在具体几点提醒你{subject}？比如 明天上午 9 点。"
+        return f"可以，你想让我在什么时候提醒你{subject}？比如 明天上午 9 点。"
 
     def _extract_title_from_message(self, message: str) -> str:
         structured = self._extract_structured_title(message)
