@@ -5,8 +5,7 @@ from typing import Any
 from urllib.parse import urlparse
 from xml.etree import ElementTree as ET
 
-import httpx
-
+from app.scout.fetchers.http_client import fetch_text
 from app.scout.fetchers.generic_list_fetcher import fetch_html_list_items
 from app.scout.fetchers.source_registry import load_sources
 from app.scout.utils.logger import get_logger
@@ -37,10 +36,12 @@ def fetch_source_items(source: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def fetch_rss_items(source: dict[str, Any]) -> list[dict[str, Any]]:
-    response = httpx.get(source["url"], timeout=20.0, follow_redirects=True)
-    response.raise_for_status()
-
-    root = ET.fromstring(response.text)
+    xml_text = fetch_text(
+        source["url"],
+        timeout=20.0,
+        referer=source.get("referer", ""),
+    )
+    root = ET.fromstring(xml_text)
     if root.tag.endswith("feed"):
         return parse_atom_feed(root, source)
     return parse_rss_feed(root, source)

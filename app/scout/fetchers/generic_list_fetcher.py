@@ -5,18 +5,15 @@ import re
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
-import httpx
+from app.scout.fetchers.http_client import fetch_text
 
 
 def fetch_html_list_items(source: dict[str, Any]) -> list[dict[str, Any]]:
-    response = httpx.get(
+    text = fetch_text(
         source["url"],
         timeout=25.0,
-        follow_redirects=True,
-        headers={"User-Agent": "Mozilla/5.0 ai-daily-scout"},
+        referer=source.get("referer", ""),
     )
-    response.raise_for_status()
-    text = response.text
 
     parser = source.get("parser", "")
     if parser == "product_hunt":

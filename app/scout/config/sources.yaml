@@ -67,6 +67,7 @@ product_sources:
     source_type: product
     fetch_strategy: html_list
     parser: product_hunt
+    referer: https://www.producthunt.com/
     category_hint: 产品
     priority: 78
 
@@ -76,6 +77,7 @@ product_sources:
     source_type: product
     fetch_strategy: html_list
     parser: product_hunt
+    referer: https://www.producthunt.com/
     category_hint: 应用
     priority: 80
 
@@ -85,6 +87,7 @@ product_sources:
     source_type: product
     fetch_strategy: html_list
     parser: product_hunt
+    referer: https://www.producthunt.com/
     category_hint: 产品
     priority: 79
 
@@ -178,5 +181,6 @@ media_sources:
     source_type: media
     fetch_strategy: html_list
     parser: venturebeat_ai
+    referer: https://venturebeat.com/
     category_hint: 新闻
     priority: 76

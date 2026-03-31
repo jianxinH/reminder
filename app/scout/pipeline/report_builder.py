@@ -68,13 +68,17 @@ def build_daily_report(
         if not items:
             continue
         lines.extend([f"## {section_name}", ""])
+        section_rendered_urls: set[str] = set()
         for source_type, grouped_items in group_by_source_type(items).items():
             lines.extend([f"### {SOURCE_TYPE_LABELS.get(source_type, source_type)}", ""])
-            for item in grouped_items:
+            rendered_items = grouped_items[: min(3, len(grouped_items))]
+            for item in rendered_items:
                 lines.extend(render_section_item(item, all_items))
-            lines.extend(render_link_roundup(grouped_items))
+                if item.get("url"):
+                    section_rendered_urls.add(item["url"])
+            lines.extend(render_link_roundup(grouped_items, rendered_urls=section_rendered_urls))
         if section_name == "研究 / 新闻 / 其他":
-            lines.extend(render_quick_links_block(items))
+            lines.extend(render_quick_links_block(items, low_priority_items, rendered_urls=section_rendered_urls))
 
     trend_observations = editorial_summary.get("trend_observations", [])
     if trend_observations:
@@ -152,25 +156,77 @@ def render_extended_links(
     return [f"- **{label}：** {link_text}"]
 
 
-def render_link_roundup(items: list[dict[str, Any]]) -> list[str]:
+def render_link_roundup(items: list[dict[str, Any]], *, rendered_urls: set[str]) -> list[str]:
+    links: list[str] = []
+    seen_urls = set(rendered_urls)
+
+    for item in items:
+        url = str(item.get("url", "")).strip()
+        if url and url not in seen_urls:
+            seen_urls.add(url)
+            links.append(f"- [{item.get('zh_title') or item.get('title')}]({url})")
+        for source in item.get("related_sources", []):
+            related_url = str(source.get("url", "")).strip()
+            if not related_url or related_url in seen_urls:
+                continue
+            seen_urls.add(related_url)
+            label = source.get("source") or source.get("title") or "相关来源"
+            links.append(f"- [{label}]({related_url})")
+        if len(links) >= 12:
+            break
+
+    if not links:
+        return []
+
     lines = ["**资讯链接速览：**"]
-    for item in items[:12]:
-        lines.append(f"- [{item.get('zh_title') or item.get('title')}]({item.get('url') or ''})")
+    lines.extend(links[:12])
     lines.append("")
     return lines
 
 
-def render_quick_links_block(items: list[dict[str, Any]]) -> list[str]:
-    lines = ["### 更多快讯链接", ""]
+def render_quick_links_block(
+    section_items: list[dict[str, Any]],
+    low_priority_items: list[dict[str, Any]],
+    *,
+    rendered_urls: set[str],
+) -> list[str]:
+    section_categories = {"研究", "新闻", "其他"}
+    quick_candidates = [
+        item
+        for item in low_priority_items
+        if (item.get("category_suggestion") or item.get("category") or "其他") in section_categories
+    ]
+    if not quick_candidates:
+        quick_candidates = [
+            item
+            for item in section_items
+            if item.get("url") and item.get("url") not in rendered_urls
+        ]
+
     quick_items = sorted(
-        items,
+        quick_candidates,
         key=lambda item: (int(item.get("importance_score", 0)), int(item.get("priority", 50))),
         reverse=True,
     )[:12]
+    if not quick_items:
+        return []
+
+    lines = ["### 更多快讯链接", ""]
+    seen_urls = set(rendered_urls)
+    added = 0
     for item in quick_items:
+        url = str(item.get("url", "")).strip()
+        if not url or url in seen_urls:
+            continue
+        seen_urls.add(url)
         source = item.get("source") or "未知来源"
         title = item.get("zh_title") or item.get("title") or "未命名条目"
-        lines.append(f"- [{title}]({item.get('url') or ''}) - {source}")
+        lines.append(f"- [{title}]({url}) - {source}")
+        added += 1
+        if added >= 12:
+            break
+    if added == 0:
+        return []
     lines.append("")
     return lines
 
@@ -208,13 +264,22 @@ def build_link_suggestions(
 
     item_category = item.get("category_suggestion") or item.get("category")
     item_source_type = item.get("source_type")
-    for candidate in fallback_items:
+    fallback_candidates = [
+        candidate
+        for candidate in fallback_items
+        if str(candidate.get("url", "")).strip()
+        and str(candidate.get("url", "")).strip() != item.get("url")
+        and (
+            (candidate.get("category_suggestion") or candidate.get("category")) == item_category
+            or candidate.get("source_type") == item_source_type
+        )
+    ]
+    if len(fallback_candidates) < 2:
+        return suggestions
+
+    for candidate in fallback_candidates:
         candidate_url = str(candidate.get("url", "")).strip()
         if not candidate_url or candidate_url == item.get("url") or candidate_url in seen_urls:
-            continue
-        same_category = (candidate.get("category_suggestion") or candidate.get("category")) == item_category
-        same_source_type = candidate.get("source_type") == item_source_type
-        if not same_category and not same_source_type:
             continue
         seen_urls.add(candidate_url)
         suggestions.append(
