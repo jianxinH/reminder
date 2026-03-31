@@ -2,11 +2,12 @@ from __future__ import annotations
 
 
 CATEGORY_RULES = {
-    "模型": ["model", "llm", "gpt", "reasoning", "multimodal", "qwen", "gemini", "claude"],
-    "产品": ["launch", "product", "feature", "assistant", "workspace", "copilot", "api"],
-    "开源": ["open source", "github", "repository", "repo", "weights", "apache", "mit"],
-    "研究": ["research", "paper", "benchmark", "evaluation", "arxiv"],
-    "应用": ["agent", "workflow", "automation", "app", "tool"],
+    "研究": ["research", "paper", "benchmark", "evaluation", "arxiv", "model", "llm", "reasoning"],
+    "产品": ["launch", "product", "feature", "assistant", "copilot", "api", "release"],
+    "开源": ["open source", "open-source", "github", "repository", "repo", "weights", "apache", "mit"],
+    "应用": ["agent", "workflow", "automation", "app", "tool", "deployment", "enterprise"],
+    "融资/公司动态": ["funding", "acquisition", "startup", "company", "raised", "investment", "partnership"],
+    "新闻": ["news", "update", "announced", "announcement"],
 }
 
 
@@ -19,6 +20,7 @@ def classify_items(items: list[dict]) -> list[dict]:
                     item.get("title", ""),
                     item.get("summary", ""),
                     item.get("raw_category", ""),
+                    item.get("source", ""),
                 ]
             )
         )

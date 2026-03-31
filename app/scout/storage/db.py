@@ -46,19 +46,26 @@ def init_db(database_path: str) -> None:
             ON articles (content_hash)
             """
         )
+
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS article_summaries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 article_id INTEGER NOT NULL,
+                is_ai_related INTEGER NOT NULL DEFAULT 1,
                 zh_title TEXT,
                 category_suggestion TEXT,
-                short_summary TEXT,
+                one_line_takeaway TEXT,
+                what_happened TEXT,
                 why_it_matters TEXT,
+                who_should_care TEXT,
+                my_commentary TEXT,
+                short_summary TEXT,
                 include_in_report INTEGER NOT NULL DEFAULT 1,
                 importance_score INTEGER DEFAULT 50,
                 confidence REAL DEFAULT 0.0,
                 tags TEXT,
+                related_sources TEXT,
                 model_name TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -66,6 +73,15 @@ def init_db(database_path: str) -> None:
             )
             """
         )
+
+        ensure_column(cursor, "article_summaries", "is_ai_related", "INTEGER NOT NULL DEFAULT 1")
+        ensure_column(cursor, "article_summaries", "one_line_takeaway", "TEXT")
+        ensure_column(cursor, "article_summaries", "what_happened", "TEXT")
+        ensure_column(cursor, "article_summaries", "who_should_care", "TEXT")
+        ensure_column(cursor, "article_summaries", "my_commentary", "TEXT")
+        ensure_column(cursor, "article_summaries", "short_summary", "TEXT")
+        ensure_column(cursor, "article_summaries", "related_sources", "TEXT")
+
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS reports (
@@ -82,3 +98,13 @@ def init_db(database_path: str) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def ensure_column(cursor: sqlite3.Cursor, table_name: str, column_name: str, definition: str) -> None:
+    columns = {
+        row[1]
+        for row in cursor.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+    if column_name in columns:
+        return
+    cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")

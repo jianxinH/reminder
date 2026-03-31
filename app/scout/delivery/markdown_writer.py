@@ -11,5 +11,6 @@ def write_markdown_report(content: str, output_dir: str, timezone_name: str) -> 
     target_dir = Path(output_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
     report_path = target_dir / f"{report_date}.md"
-    report_path.write_text(content, encoding="utf-8")
+    normalized_content = content.rstrip() + "\n"
+    report_path.write_text(normalized_content, encoding="utf-8", newline="\n")
     return report_path

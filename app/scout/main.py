@@ -9,6 +9,7 @@ from app.scout.config.settings import get_settings
 from app.scout.delivery.markdown_writer import write_markdown_report
 from app.scout.fetchers.rss_fetcher import fetch_all_rss_items
 from app.scout.pipeline.classify import classify_items
+from app.scout.pipeline.daily_editor import DailyEditor
 from app.scout.pipeline.dedupe import dedupe_items
 from app.scout.pipeline.normalize import normalize_items
 from app.scout.pipeline.report_builder import build_daily_report
@@ -18,6 +19,10 @@ from app.scout.storage.repository import ArticleRepository
 from app.scout.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+TOP_THRESHOLD = 75
+REGULAR_THRESHOLD = 60
+MIN_REPORT_ITEMS = 8
 
 
 def ensure_directories() -> None:
@@ -40,10 +45,10 @@ def filter_recent_items(
     for item in items:
         published_at = parse_datetime(item.get("published_at", ""), tz)
         if published_at is None:
+            filtered.append(item)
             continue
         if published_at >= cutoff:
             filtered.append(item)
-
     return filtered
 
 
@@ -51,7 +56,7 @@ def parse_datetime(value: str, timezone: ZoneInfo) -> datetime | None:
     if not value:
         return None
     try:
-        parsed = datetime.fromisoformat(value)
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
     if parsed.tzinfo is None:
@@ -59,16 +64,52 @@ def parse_datetime(value: str, timezone: ZoneInfo) -> datetime | None:
     return parsed.astimezone(timezone)
 
 
-def sort_items_by_published_at(
-    items: list[dict[str, Any]],
-    timezone_name: str,
-) -> list[dict[str, Any]]:
+def sort_items_by_priority(items: list[dict[str, Any]], timezone_name: str) -> list[dict[str, Any]]:
     tz = ZoneInfo(timezone_name)
     return sorted(
         items,
-        key=lambda item: parse_datetime(item.get("published_at", ""), tz) or datetime.min.replace(tzinfo=tz),
+        key=lambda item: (
+            int(item.get("importance_score", 0)),
+            parse_datetime(item.get("published_at", ""), tz) or datetime.min.replace(tzinfo=tz),
+        ),
         reverse=True,
     )
+
+
+def partition_items(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
+    sorted_items = sorted(items, key=lambda item: int(item.get("importance_score", 0)), reverse=True)
+
+    top_candidates = [item for item in sorted_items if item.get("importance_score", 0) >= TOP_THRESHOLD]
+    regular_candidates = [
+        item
+        for item in sorted_items
+        if item not in top_candidates
+        and item.get("is_ai_related", True)
+        and item.get("importance_score", 0) >= REGULAR_THRESHOLD
+    ]
+    low_priority_candidates = [
+        item
+        for item in sorted_items
+        if item not in top_candidates and item not in regular_candidates and item.get("is_ai_related", True)
+    ]
+
+    if len(top_candidates) < 3:
+        needed = 3 - len(top_candidates)
+        top_candidates.extend(regular_candidates[:needed])
+        regular_candidates = regular_candidates[needed:]
+
+    included_count = len(top_candidates) + len(regular_candidates)
+    if included_count < MIN_REPORT_ITEMS:
+        promote_count = min(MIN_REPORT_ITEMS - included_count, len(low_priority_candidates))
+        regular_candidates.extend(low_priority_candidates[:promote_count])
+        low_priority_candidates = low_priority_candidates[promote_count:]
+
+    section_items: dict[str, list[dict[str, Any]]] = {}
+    for item in regular_candidates:
+        category = item.get("category_suggestion") or item.get("category") or "其他"
+        section_items.setdefault(category, []).append(item)
+
+    return top_candidates[:3], section_items, low_priority_candidates
 
 
 def run_pipeline() -> dict[str, Any]:
@@ -82,6 +123,7 @@ def run_pipeline() -> dict[str, Any]:
         model=settings.openai_model,
         language=settings.report_language,
     )
+    daily_editor = DailyEditor(api_key=settings.openai_api_key, model=settings.openai_model)
 
     logger.info("开始抓取 RSS 资讯...")
     raw_items = fetch_all_rss_items(settings.sources_file)
@@ -102,48 +144,64 @@ def run_pipeline() -> dict[str, Any]:
         if repository.exists_by_url(item["url"]):
             continue
         filtered_items.append(item)
-
     logger.info("过滤数据库中已存在 URL 后条数: %s", len(filtered_items))
 
     unique_items = dedupe_items(filtered_items)
     logger.info("去重后条数: %s", len(unique_items))
 
-    classified_items = classify_items(sort_items_by_published_at(unique_items, settings.report_timezone))
+    classified_items = classify_items(unique_items)
 
-    summarized_items: list[dict[str, Any]] = []
+    cards: list[dict[str, Any]] = []
     inserted_count = 0
-    summarized_count = 0
-    summary_limit = max(0, settings.max_summary_items)
-    rebuilt_from_db_count = 0
-
-    for index, item in enumerate(classified_items, start=1):
+    processed_count = 0
+    for item in sort_items_by_priority(classified_items, settings.report_timezone):
         article_id = repository.insert_article(item)
         inserted_count += 1
+        card = {**item, **summarizer.summarize_item(item)}
+        repository.insert_article_summary(article_id, card)
+        cards.append(card)
+        processed_count += 1
 
-        should_summarize = index <= summary_limit
-        if should_summarize:
-            logger.info("正在摘要第 %s/%s 条: %s", index, len(classified_items), item.get("title", ""))
-            summary_result = summarizer.summarize_item(item)
-            summarized_count += 1
-        else:
-            summary_result = summarizer.fallback_summary(item, reason="超过本次摘要上限，已使用原始摘要。")
-
-        repository.insert_article_summary(article_id, summary_result)
-        summarized_items.append({**item, **summary_result})
-
-    included_items = [item for item in summarized_items if item.get("include_in_report", True)]
-    if not included_items:
-        logger.info("本次没有新增可收录内容，尝试从数据库重建最近 %s 天日报。", settings.recent_days)
-        stored_items = repository.get_recent_report_items(
-            recent_days=settings.recent_days,
-            limit=settings.report_top_n,
+    eligible_items = [
+        item
+        for item in cards
+        if item.get("is_ai_related", True)
+        and (
+            item.get("include_in_report", False)
+            or item.get("importance_score", 0) >= REGULAR_THRESHOLD
+            or item.get("importance_score", 0) >= 40
         )
-        included_items = [item for item in stored_items if item.get("include_in_report", True)]
-        rebuilt_from_db_count = len(included_items)
+    ]
+
+    if not eligible_items:
+        logger.info("本次没有新增可用内容，尝试从数据库重建日报。")
+        eligible_items = repository.get_recent_report_items(
+            recent_days=settings.recent_days,
+            limit=max(settings.report_top_n * 2, MIN_REPORT_ITEMS),
+        )
+
+    top_items, section_items, low_priority_items = partition_items(eligible_items)
+    included_items = top_items + [item for items in section_items.values() for item in items] + low_priority_items
+
+    stats = {
+        "fetched_count": len(raw_items),
+        "normalized_count": len(normalized_items),
+        "deduped_count": len(unique_items),
+        "processed_count": processed_count,
+        "top_count": len(top_items),
+        "regular_count": sum(len(items) for items in section_items.values()),
+        "low_priority_count": len(low_priority_items),
+        "included_count": len(included_items),
+    }
+
+    editorial_summary = daily_editor.build_daily_summary(included_items, stats)
 
     report_markdown = build_daily_report(
-        items=included_items,
-        top_n=settings.report_top_n,
+        top_items=top_items,
+        section_items=section_items,
+        low_priority_items=low_priority_items,
+        editorial_summary=editorial_summary,
+        stats=stats,
         timezone_name=settings.report_timezone,
     )
 
@@ -154,17 +212,7 @@ def run_pipeline() -> dict[str, Any]:
     )
     repository.insert_report(report_path=report_path, item_count=len(included_items))
 
-    stats = {
-        "fetched_count": len(raw_items),
-        "normalized_count": len(normalized_items),
-        "recent_count": len(recent_items),
-        "deduped_count": len(unique_items),
-        "inserted_count": inserted_count,
-        "summarized_count": summarized_count,
-        "included_count": len(included_items),
-        "rebuilt_from_db_count": rebuilt_from_db_count,
-        "report_path": str(report_path),
-    }
+    stats["report_path"] = str(report_path)
     logger.info("处理完成: %s", stats)
     return stats
 
@@ -175,13 +223,12 @@ def main() -> None:
         print("\n=== AI Daily Scout ===")
         print(f"抓取条数: {stats['fetched_count']}")
         print(f"标准化后条数: {stats['normalized_count']}")
-        print(f"最近时间窗条数: {stats['recent_count']}")
         print(f"去重后条数: {stats['deduped_count']}")
-        print(f"写入数据库条数: {stats['inserted_count']}")
-        print(f"调用摘要条数: {stats['summarized_count']}")
-        print(f"收录到日报条数: {stats['included_count']}")
-        print(f"数据库重建条数: {stats['rebuilt_from_db_count']}")
-        print(f"日报输出路径: {stats['report_path']}")
+        print(f"模型处理条数: {stats['processed_count']}")
+        print(f"收录到重点区条数: {stats['top_count']}")
+        print(f"收录到普通区条数: {stats['regular_count']}")
+        print(f"低优先级简讯条数: {stats['low_priority_count']}")
+        print(f"最终日报路径: {stats['report_path']}")
     except Exception as exc:
         logger.exception("主流程运行失败: %s", exc)
         raise
