@@ -193,6 +193,23 @@ def supplement_with_recent_database_items(
     return eligible_items + chosen_supplements, len(chosen_supplements)
 
 
+def fallback_with_current_cards(
+    eligible_items: list[dict[str, Any]],
+    cards: list[dict[str, Any]],
+    report_top_n: int,
+) -> tuple[list[dict[str, Any]], int]:
+    if eligible_items:
+        return eligible_items, 0
+
+    fallback_candidates = [
+        item
+        for item in cards
+        if item.get("is_ai_related", True) or item.get("importance_score", 0) >= 20
+    ]
+    chosen = fallback_candidates[: max(report_top_n, MIN_REPORT_ITEMS)]
+    return chosen, len(chosen)
+
+
 def run_pipeline() -> dict[str, Any]:
     settings = get_settings()
     ensure_directories()
@@ -262,6 +279,15 @@ def run_pipeline() -> dict[str, Any]:
             report_top_n=settings.report_top_n,
         )
 
+    current_card_fallback_count = 0
+    if not eligible_items:
+        logger.info("数据库补足后仍无可用条目，回退到当日已处理卡片。")
+        eligible_items, current_card_fallback_count = fallback_with_current_cards(
+            eligible_items=eligible_items,
+            cards=cards,
+            report_top_n=settings.report_top_n,
+        )
+
     top_items, section_items, low_priority_items = partition_items(eligible_items)
     included_items = top_items + [item for items in section_items.values() for item in items] + low_priority_items
 
@@ -275,6 +301,7 @@ def run_pipeline() -> dict[str, Any]:
         "low_priority_count": len(low_priority_items),
         "included_count": len(included_items),
         "db_supplement_count": db_supplement_count,
+        "current_card_fallback_count": current_card_fallback_count,
     }
 
     editorial_summary = daily_editor.build_daily_summary(included_items, stats)
@@ -312,6 +339,7 @@ def main() -> None:
         print(f"收录到普通区条数: {stats['regular_count']}")
         print(f"低优先级简讯条数: {stats['low_priority_count']}")
         print(f"数据库补足条数: {stats['db_supplement_count']}")
+        print(f"当日卡片兜底条数: {stats['current_card_fallback_count']}")
         print(f"最终日报路径: {stats['report_path']}")
     except Exception as exc:
         logger.exception("主流程运行失败: %s", exc)

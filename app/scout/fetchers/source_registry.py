@@ -32,6 +32,7 @@ def load_sources(sources_file: str) -> list[dict[str, Any]]:
                     "source_type": source.get("source_type", infer_source_type(group_name)),
                     "fetch_strategy": source.get("fetch_strategy", "rss"),
                     "parser": source.get("parser", ""),
+                    "referer": source.get("referer", ""),
                     "category_hint": source.get("category_hint", ""),
                     "priority": int(source.get("priority", 50)),
                 }
