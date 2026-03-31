@@ -6,7 +6,7 @@ on:
       - codex/ai-daily-scout
   workflow_dispatch:
   schedule:
-    - cron: "15 1 * * *"
+    - cron: "0 2 * * *"
 
 jobs:
   build-report:
