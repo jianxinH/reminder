@@ -15,17 +15,23 @@ def normalize_items(raw_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
         summary = clean_text(item.get("summary", ""))
         source = clean_text(item.get("source", ""))
-        raw_category = clean_text(item.get("raw_category", ""))
+        raw_category = clean_text(item.get("raw_category", "") or item.get("category_hint", ""))
         published_at = str(item.get("published_at", "")).strip()
+        source_type = clean_text(item.get("source_type", ""))
+        category_hint = clean_text(item.get("category_hint", ""))
+        priority = normalize_priority(item.get("priority", 50))
 
         normalized.append(
             {
                 "title": title,
                 "url": url,
                 "source": source,
+                "source_type": source_type,
                 "published_at": published_at,
                 "summary": summary,
                 "raw_category": raw_category,
+                "category_hint": category_hint,
+                "priority": priority,
                 "content_hash": build_content_hash(title, summary, source),
             }
         )
@@ -42,3 +48,11 @@ def clean_text(value: Any) -> str:
 def build_content_hash(title: str, summary: str, source: str) -> str:
     payload = f"{title}\n{summary}\n{source}".strip().lower()
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def normalize_priority(value: Any) -> int:
+    try:
+        priority = int(value)
+    except (TypeError, ValueError):
+        priority = 50
+    return max(0, min(priority, 100))

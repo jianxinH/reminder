@@ -6,31 +6,34 @@ from urllib.parse import urlparse
 from xml.etree import ElementTree as ET
 
 import httpx
-import yaml
 
+from app.scout.fetchers.generic_list_fetcher import fetch_html_list_items
+from app.scout.fetchers.source_registry import load_sources
 from app.scout.utils.logger import get_logger
 
 ATOM_NS = {"atom": "http://www.w3.org/2005/Atom"}
 logger = get_logger(__name__)
 
 
-def load_sources(sources_file: str) -> list[dict[str, Any]]:
-    with open(sources_file, "r", encoding="utf-8") as file:
-        data = yaml.safe_load(file) or {}
-    sources = data.get("sources", [])
-    return [source for source in sources if source.get("enabled", False)]
-
-
 def fetch_all_rss_items(sources_file: str) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for source in load_sources(sources_file):
         try:
-            source_items = fetch_rss_items(source)
+            source_items = fetch_source_items(source)
         except Exception as exc:
-            logger.warning("跳过 RSS 源 %s: %s", source.get("name", source.get("url", "unknown")), exc)
+            logger.warning("跳过来源 %s: %s", source.get("name", source.get("url", "unknown")), exc)
             continue
         items.extend(source_items)
     return items
+
+
+def fetch_source_items(source: dict[str, Any]) -> list[dict[str, Any]]:
+    strategy = source.get("fetch_strategy", "rss")
+    if strategy == "rss":
+        return fetch_rss_items(source)
+    if strategy == "html_list":
+        return fetch_html_list_items(source)
+    raise ValueError(f"Unsupported fetch strategy: {strategy}")
 
 
 def fetch_rss_items(source: dict[str, Any]) -> list[dict[str, Any]]:
@@ -55,14 +58,14 @@ def parse_rss_feed(root: ET.Element, source: dict[str, Any]) -> list[dict[str, A
         if not link or not title:
             continue
         items.append(
-            {
-                "title": title,
-                "url": link.strip(),
-                "source": source.get("name") or hostname_from_url(link),
-                "published_at": normalize_date(get_text(entry.find("pubDate"))),
-                "summary": get_text(entry.find("description")),
-                "raw_category": get_text(entry.find("category")),
-            }
+            build_item(
+                source,
+                title=title,
+                url=link.strip(),
+                published_at=normalize_date(get_text(entry.find("pubDate"))),
+                summary=get_text(entry.find("description")),
+                category_hint=get_text(entry.find("category")) or source.get("category_hint", ""),
+            )
         )
     return items
 
@@ -81,20 +84,42 @@ def parse_atom_feed(root: ET.Element, source: dict[str, Any]) -> list[dict[str, 
         if not title or not link:
             continue
         items.append(
-            {
-                "title": title,
-                "url": link,
-                "source": source.get("name") or hostname_from_url(link),
-                "published_at": normalize_date(
+            build_item(
+                source,
+                title=title,
+                url=link,
+                published_at=normalize_date(
                     get_text(entry.find("atom:updated", ATOM_NS))
                     or get_text(entry.find("atom:published", ATOM_NS))
                 ),
-                "summary": get_text(entry.find("atom:summary", ATOM_NS))
+                summary=get_text(entry.find("atom:summary", ATOM_NS))
                 or get_text(entry.find("atom:content", ATOM_NS)),
-                "raw_category": first_atom_category(entry),
-            }
+                category_hint=first_atom_category(entry) or source.get("category_hint", ""),
+            )
         )
     return items
+
+
+def build_item(
+    source: dict[str, Any],
+    *,
+    title: str,
+    url: str,
+    published_at: str,
+    summary: str,
+    category_hint: str,
+) -> dict[str, Any]:
+    return {
+        "title": title,
+        "url": url,
+        "source": source.get("name") or hostname_from_url(url),
+        "source_type": source.get("source_type", "media"),
+        "published_at": published_at,
+        "summary": summary,
+        "category_hint": category_hint,
+        "priority": int(source.get("priority", 50)),
+        "raw_category": category_hint,
+    }
 
 
 def first_atom_category(entry: ET.Element) -> str:

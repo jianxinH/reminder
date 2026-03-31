@@ -98,6 +98,13 @@ def partition_items(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], 
         top_candidates.extend(regular_candidates[:needed])
         regular_candidates = regular_candidates[needed:]
 
+    regular_candidates, low_priority_candidates = ensure_category_presence(
+        regular_candidates,
+        low_priority_candidates,
+        preferred_categories={"研究", "新闻", "其他"},
+        minimum_per_category=1,
+    )
+
     included_count = len(top_candidates) + len(regular_candidates)
     if included_count < MIN_REPORT_ITEMS:
         promote_count = min(MIN_REPORT_ITEMS - included_count, len(low_priority_candidates))
@@ -110,6 +117,42 @@ def partition_items(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], 
         section_items.setdefault(category, []).append(item)
 
     return top_candidates[:3], section_items, low_priority_candidates
+
+
+def ensure_category_presence(
+    regular_candidates: list[dict[str, Any]],
+    low_priority_candidates: list[dict[str, Any]],
+    *,
+    preferred_categories: set[str],
+    minimum_per_category: int,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    regular = list(regular_candidates)
+    low_priority = list(low_priority_candidates)
+
+    for category in preferred_categories:
+        current_count = sum(
+            1
+            for item in regular
+            if (item.get("category_suggestion") or item.get("category") or "其他") == category
+        )
+        if current_count >= minimum_per_category:
+            continue
+
+        needed = minimum_per_category - current_count
+        matching = [
+            item
+            for item in low_priority
+            if (item.get("category_suggestion") or item.get("category") or "其他") == category
+        ][:needed]
+        if not matching:
+            continue
+
+        regular.extend(matching)
+        low_priority = [item for item in low_priority if item not in matching]
+
+    regular.sort(key=lambda item: int(item.get("importance_score", 0)), reverse=True)
+    low_priority.sort(key=lambda item: int(item.get("importance_score", 0)), reverse=True)
+    return regular, low_priority
 
 
 def run_pipeline() -> dict[str, Any]:

@@ -8,9 +8,9 @@ from zoneinfo import ZoneInfo
 
 SECTION_ORDER = [
     ("产品与应用", {"产品", "应用"}),
-    ("模型 / 开源 / 技术", {"开源", "研究"}),
+    ("模型 / 开源 / 技术", {"开源"}),
     ("公司动态 / 融资", {"融资/公司动态"}),
-    ("研究 / 其他", {"新闻", "其他"}),
+    ("研究 / 新闻 / 其他", {"研究", "新闻", "其他"}),
 ]
 
 
@@ -92,6 +92,7 @@ def render_featured_item(index: int, item: dict[str, Any]) -> list[str]:
         f"- **谁应该关注：** {item.get('who_should_care') or '信息不足'}",
         f"- **简评：** {item.get('my_commentary') or '信息不足'}",
         f"- **来源：** {item.get('source') or '未知来源'}",
+        f"- **来源类型：** `{item.get('source_type') or 'unknown'}`",
         f"- **链接：** {item.get('url') or ''}",
     ]
     related_sources = item.get("related_sources", [])
@@ -110,6 +111,7 @@ def render_section_item(item: dict[str, Any]) -> list[str]:
         f"- **适合人群：** {item.get('who_should_care') or '信息不足'}",
         f"- **简评：** {item.get('my_commentary') or '信息不足'}",
         f"- **来源：** {item.get('source') or '未知来源'}",
+        f"- **来源类型：** `{item.get('source_type') or 'unknown'}`",
         f"- **链接：** {item.get('url') or ''}",
         "",
         "---",

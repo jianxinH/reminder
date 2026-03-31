@@ -26,17 +26,20 @@ class ArticleRepository:
             cursor = conn.execute(
                 """
                 INSERT INTO articles (
-                    title, url, source, published_at, summary, raw_category,
-                    content_hash, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    title, url, source, source_type, published_at, summary, raw_category,
+                    category_hint, priority, content_hash, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item.get("title", ""),
                     item.get("url", ""),
                     item.get("source", ""),
+                    item.get("source_type", ""),
                     item.get("published_at", ""),
                     item.get("summary", ""),
                     item.get("raw_category", ""),
+                    item.get("category_hint", ""),
+                    int(item.get("priority", 50)),
                     item.get("content_hash", ""),
                     now,
                     now,
@@ -137,9 +140,12 @@ class ArticleRepository:
                     a.title,
                     a.url,
                     a.source,
+                    a.source_type,
                     a.published_at,
                     a.summary,
                     a.raw_category,
+                    a.category_hint,
+                    a.priority,
                     a.content_hash,
                     s.is_ai_related,
                     s.zh_title,
@@ -174,9 +180,12 @@ class ArticleRepository:
             "title": row["title"],
             "url": row["url"],
             "source": row["source"],
+            "source_type": row["source_type"] or "",
             "published_at": row["published_at"],
             "summary": row["summary"],
             "raw_category": row["raw_category"],
+            "category_hint": row["category_hint"] or "",
+            "priority": row["priority"] if row["priority"] is not None else 50,
             "content_hash": row["content_hash"],
             "is_ai_related": bool(row["is_ai_related"]) if row["is_ai_related"] is not None else True,
             "zh_title": row["zh_title"] or row["title"],

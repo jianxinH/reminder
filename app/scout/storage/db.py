@@ -19,9 +19,12 @@ def init_db(database_path: str) -> None:
                 title TEXT NOT NULL,
                 url TEXT NOT NULL UNIQUE,
                 source TEXT,
+                source_type TEXT,
                 published_at TEXT,
                 summary TEXT,
                 raw_category TEXT,
+                category_hint TEXT,
+                priority INTEGER DEFAULT 50,
                 content_hash TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -81,6 +84,9 @@ def init_db(database_path: str) -> None:
         ensure_column(cursor, "article_summaries", "my_commentary", "TEXT")
         ensure_column(cursor, "article_summaries", "short_summary", "TEXT")
         ensure_column(cursor, "article_summaries", "related_sources", "TEXT")
+        ensure_column(cursor, "articles", "source_type", "TEXT")
+        ensure_column(cursor, "articles", "category_hint", "TEXT")
+        ensure_column(cursor, "articles", "priority", "INTEGER DEFAULT 50")
 
         cursor.execute(
             """

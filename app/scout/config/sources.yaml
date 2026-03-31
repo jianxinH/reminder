@@ -1,35 +1,182 @@
-sources:
-  # International / official blogs
+official_sources:
   - name: OpenAI News
     url: https://openai.com/news/rss.xml
     enabled: true
+    source_type: official
+    fetch_strategy: rss
+    category_hint: 新闻
+    priority: 95
+
+  - name: Anthropic News
+    url: https://www.anthropic.com/news
+    enabled: true
+    source_type: official
+    fetch_strategy: html_list
+    parser: anthropic_news
+    category_hint: 新闻
+    priority: 92
+
+  - name: Anthropic Research
+    url: https://www.anthropic.com/research
+    enabled: true
+    source_type: official
+    fetch_strategy: html_list
+    parser: anthropic_research
+    category_hint: 研究
+    priority: 94
+
+  - name: Google DeepMind Blog
+    url: https://deepmind.google/discover/blog/
+    enabled: true
+    source_type: official
+    fetch_strategy: html_list
+    parser: deepmind_blog
+    category_hint: 新闻
+    priority: 90
+
+  - name: Google DeepMind Publications
+    url: https://deepmind.google/research/publications/
+    enabled: true
+    source_type: official
+    fetch_strategy: html_list
+    parser: deepmind_publications
+    category_hint: 研究
+    priority: 88
 
   - name: Hugging Face Blog
     url: https://huggingface.co/blog/feed.xml
     enabled: true
+    source_type: official
+    fetch_strategy: rss
+    category_hint: 产品
+    priority: 89
 
-  - name: Google DeepMind Blog
-    url: https://deepmind.google/discover/blog/feed.xml
+  - name: Hugging Face Daily Papers
+    url: https://huggingface.co/papers
     enabled: true
+    source_type: official
+    fetch_strategy: html_list
+    parser: huggingface_papers
+    category_hint: 研究
+    priority: 82
 
-  - name: Microsoft AI Blog
-    url: https://blogs.microsoft.com/ai/feed/
+product_sources:
+  - name: Product Hunt Artificial Intelligence
+    url: https://www.producthunt.com/topics/artificial-intelligence
     enabled: true
+    source_type: product
+    fetch_strategy: html_list
+    parser: product_hunt
+    category_hint: 产品
+    priority: 78
 
-  - name: Google Research Blog
-    url: https://research.google/blog/rss/
+  - name: Product Hunt AI Agents
+    url: https://www.producthunt.com/categories/ai-agents
     enabled: true
+    source_type: product
+    fetch_strategy: html_list
+    parser: product_hunt
+    category_hint: 应用
+    priority: 80
 
-  # China / Chinese-language sources
-  - name: Qwen Blog
-    url: https://qwenlm.github.io/blog/index.xml
+  - name: Product Hunt AI Coding Agents
+    url: https://www.producthunt.com/categories/ai-coding-agents
     enabled: true
+    source_type: product
+    fetch_strategy: html_list
+    parser: product_hunt
+    category_hint: 产品
+    priority: 79
 
-  - name: Microsoft Research Asia
-    url: https://www.msra.cn/zh-cn/feed
+open_source_sources:
+  - name: GitHub Trending
+    url: https://github.com/trending?since=daily
     enabled: true
+    source_type: open_source
+    fetch_strategy: html_list
+    parser: github_trending
+    category_hint: 开源
+    priority: 84
 
-  # Optional sources kept disabled by default until you confirm they fit your taste
-  - name: Anthropic News
-    url: https://www.anthropic.com/news/rss.xml
-    enabled: false
+  - name: GitHub Explore
+    url: https://github.com/explore
+    enabled: true
+    source_type: open_source
+    fetch_strategy: html_list
+    parser: github_explore
+    category_hint: 开源
+    priority: 72
+
+  - name: GitHub Topics AI
+    url: https://github.com/topics/ai
+    enabled: true
+    source_type: open_source
+    fetch_strategy: html_list
+    parser: github_topic
+    category_hint: 开源
+    priority: 83
+
+  - name: GitHub Topics LLM
+    url: https://github.com/topics/llm
+    enabled: true
+    source_type: open_source
+    fetch_strategy: html_list
+    parser: github_topic
+    category_hint: 开源
+    priority: 83
+
+  - name: GitHub Topics AI Agents
+    url: https://github.com/topics/ai-agents
+    enabled: true
+    source_type: open_source
+    fetch_strategy: html_list
+    parser: github_topic
+    category_hint: 开源
+    priority: 84
+
+research_sources:
+  - name: arXiv cs.AI recent
+    url: https://arxiv.org/list/cs.AI/recent
+    enabled: true
+    source_type: research
+    fetch_strategy: html_list
+    parser: arxiv_list
+    category_hint: 研究
+    priority: 86
+
+  - name: arXiv cs.AI new
+    url: https://arxiv.org/list/cs.AI/new
+    enabled: true
+    source_type: research
+    fetch_strategy: html_list
+    parser: arxiv_list
+    category_hint: 研究
+    priority: 85
+
+  - name: Papers with Code Trending Papers
+    url: https://paperswithcode.com/
+    enabled: true
+    source_type: research
+    fetch_strategy: html_list
+    parser: papers_with_code
+    category_hint: 研究
+    priority: 74
+
+media_sources:
+  - name: TechCrunch AI
+    url: https://techcrunch.com/tag/artificial-intelligence/
+    enabled: true
+    source_type: media
+    fetch_strategy: html_list
+    parser: techcrunch_ai
+    category_hint: 新闻
+    priority: 76
+
+  - name: VentureBeat AI
+    url: https://venturebeat.com/ai/
+    enabled: true
+    source_type: media
+    fetch_strategy: html_list
+    parser: venturebeat_ai
+    category_hint: 新闻
+    priority: 76
