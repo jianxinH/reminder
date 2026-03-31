@@ -22,7 +22,9 @@ logger = get_logger(__name__)
 
 TOP_THRESHOLD = 75
 REGULAR_THRESHOLD = 60
-MIN_REPORT_ITEMS = 8
+MIN_REPORT_ITEMS = 12
+TARGET_REPORT_ITEMS = 18
+MIN_LOW_PRIORITY_ITEMS = 6
 
 
 def ensure_directories() -> None:
@@ -111,10 +113,20 @@ def partition_items(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], 
     )
 
     included_count = len(top_candidates) + len(regular_candidates)
-    if included_count < MIN_REPORT_ITEMS:
-        promote_count = min(MIN_REPORT_ITEMS - included_count, len(low_priority_candidates))
+    if included_count < TARGET_REPORT_ITEMS:
+        promote_count = min(TARGET_REPORT_ITEMS - included_count, len(low_priority_candidates))
         regular_candidates.extend(low_priority_candidates[:promote_count])
         low_priority_candidates = low_priority_candidates[promote_count:]
+
+    if len(low_priority_candidates) < MIN_LOW_PRIORITY_ITEMS:
+        spillback_count = min(
+            MIN_LOW_PRIORITY_ITEMS - len(low_priority_candidates),
+            max(len(regular_candidates) - MIN_REPORT_ITEMS, 0),
+        )
+        if spillback_count > 0:
+            spillback_items = regular_candidates[-spillback_count:]
+            regular_candidates = regular_candidates[:-spillback_count]
+            low_priority_candidates = spillback_items + low_priority_candidates
 
     section_items: dict[str, list[dict[str, Any]]] = {}
     for item in regular_candidates:
@@ -168,14 +180,14 @@ def supplement_with_recent_database_items(
 ) -> tuple[list[dict[str, Any]], int]:
     stored_items = repository.get_recent_report_items(
         recent_days=recent_days,
-        limit=max(report_top_n * 3, MIN_REPORT_ITEMS * 2),
+        limit=max(report_top_n * 4, TARGET_REPORT_ITEMS * 2),
     )
     existing_urls = {item.get("url", "") for item in eligible_items}
     supplement_items = [item for item in stored_items if item.get("url", "") not in existing_urls]
 
-    needed = max(MIN_REPORT_ITEMS - len(eligible_items), 0)
+    needed = max(TARGET_REPORT_ITEMS - len(eligible_items), 0)
     if needed == 0:
-        needed = min(len(supplement_items), report_top_n)
+        needed = min(len(supplement_items), max(report_top_n, MIN_LOW_PRIORITY_ITEMS))
 
     chosen_supplements = supplement_items[:needed]
     return eligible_items + chosen_supplements, len(chosen_supplements)
@@ -241,7 +253,7 @@ def run_pipeline() -> dict[str, Any]:
     ]
 
     db_supplement_count = 0
-    if len(eligible_items) < MIN_REPORT_ITEMS:
+    if len(eligible_items) < TARGET_REPORT_ITEMS:
         logger.info("本次可用条目偏少，尝试从数据库补足最近 %s 天内容。", settings.recent_days)
         eligible_items, db_supplement_count = supplement_with_recent_database_items(
             repository=repository,
