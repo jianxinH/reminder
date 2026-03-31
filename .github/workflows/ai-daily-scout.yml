@@ -13,6 +13,8 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     permissions:
       contents: write
+    env:
+      SCOUT_DATABASE_PATH: /home/githubrunner/.local/share/ai-daily-scout/scout.db
 
     steps:
       - name: Checkout repository
@@ -40,7 +42,7 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-5.4' }}
-          SCOUT_DATABASE_PATH: data/scout.db
+          SCOUT_DATABASE_PATH: ${{ env.SCOUT_DATABASE_PATH }}
           SCOUT_SOURCES_FILE: app/scout/config/sources.yaml
           REPORT_TIMEZONE: ${{ vars.REPORT_TIMEZONE || 'Asia/Shanghai' }}
           REPORT_LANGUAGE: ${{ vars.REPORT_LANGUAGE || 'zh-CN' }}
@@ -52,6 +54,7 @@ jobs:
           HTTPS_PROXY: http://127.0.0.1:7890
           NO_PROXY: 127.0.0.1,localhost
         run: |
+          mkdir -p "$(dirname "$SCOUT_DATABASE_PATH")"
           "$HOME/.venvs/ai-daily-scout/bin/python" run_daily.py
 
       - name: Resolve report path
@@ -105,5 +108,5 @@ jobs:
           name: ai-daily-scout-report
           path: |
             reports/
-            data/scout.db
+            ${{ env.SCOUT_DATABASE_PATH }}
           if-no-files-found: error
