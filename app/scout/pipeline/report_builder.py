@@ -39,7 +39,7 @@ def build_daily_report(
         f"- 今日共抓取 **{stats.get('fetched_count', 0)}** 条资讯，去重后 **{stats.get('deduped_count', 0)}** 条，最终收录 **{stats.get('included_count', 0)}** 条。",
         f"- 资讯主要集中在：{top_categories}",
         f"- 今日高频关键词：{top_tags}",
-        f"- 主编摘要：{editorial_summary.get('overview', '今天的 AI 动态仍以产品、应用和模型能力更新为主。')}",
+        f"- 主编摘要：{editorial_summary.get('overview', '今天 AI 动态仍以产品、应用和模型能力更新为主。')}",
         "",
     ]
 
@@ -72,8 +72,12 @@ def build_daily_report(
 
     if low_priority_items:
         lines.extend(["## 低优先级简讯", ""])
-        for item in low_priority_items[:8]:
-            lines.append(f"- {item.get('zh_title') or item.get('title')}：{item.get('one_line_takeaway') or item.get('short_summary')}")
+        for item in low_priority_items[:10]:
+            lines.append(
+                f"- **{item.get('zh_title') or item.get('title')}**："
+                f"{item.get('one_line_takeaway') or item.get('short_summary')}"
+                f" [原文]({item.get('url') or ''})"
+            )
         lines.append("")
 
     low_priority_summary = editorial_summary.get("low_priority_summary", "")
@@ -93,11 +97,17 @@ def render_featured_item(index: int, item: dict[str, Any]) -> list[str]:
         f"- **简评：** {item.get('my_commentary') or '信息不足'}",
         f"- **来源：** {item.get('source') or '未知来源'}",
         f"- **来源类型：** `{item.get('source_type') or 'unknown'}`",
-        f"- **链接：** {item.get('url') or ''}",
+        f"- **链接：** [原文]({item.get('url') or ''})",
     ]
     related_sources = item.get("related_sources", [])
     if related_sources:
-        lines.append("- **相关来源：** " + "；".join(source.get("source") or source.get("url", "") for source in related_sources[:3]))
+        lines.append(
+            "- **相关来源：** "
+            + "；".join(
+                f"[{source.get('source') or source.get('title') or '相关来源'}]({source.get('url', '')})"
+                for source in related_sources[:5]
+            )
+        )
     lines.extend(["", "---", ""])
     return lines
 
@@ -112,9 +122,16 @@ def render_section_item(item: dict[str, Any]) -> list[str]:
         f"- **简评：** {item.get('my_commentary') or '信息不足'}",
         f"- **来源：** {item.get('source') or '未知来源'}",
         f"- **来源类型：** `{item.get('source_type') or 'unknown'}`",
-        f"- **链接：** {item.get('url') or ''}",
-        "",
-        "---",
-        "",
+        f"- **链接：** [原文]({item.get('url') or ''})",
     ]
+    related_sources = item.get("related_sources", [])
+    if related_sources:
+        lines.append(
+            "- **更多链接：** "
+            + "；".join(
+                f"[{source.get('source') or source.get('title') or '相关来源'}]({source.get('url', '')})"
+                for source in related_sources[:5]
+            )
+        )
+    lines.extend(["", "---", ""])
     return lines

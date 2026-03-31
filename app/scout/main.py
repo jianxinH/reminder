@@ -70,6 +70,7 @@ def sort_items_by_priority(items: list[dict[str, Any]], timezone_name: str) -> l
         items,
         key=lambda item: (
             int(item.get("importance_score", 0)),
+            int(item.get("priority", 50)),
             parse_datetime(item.get("published_at", ""), tz) or datetime.min.replace(tzinfo=tz),
         ),
         reverse=True,
@@ -77,7 +78,11 @@ def sort_items_by_priority(items: list[dict[str, Any]], timezone_name: str) -> l
 
 
 def partition_items(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
-    sorted_items = sorted(items, key=lambda item: int(item.get("importance_score", 0)), reverse=True)
+    sorted_items = sorted(
+        items,
+        key=lambda item: (int(item.get("importance_score", 0)), int(item.get("priority", 50))),
+        reverse=True,
+    )
 
     top_candidates = [item for item in sorted_items if item.get("importance_score", 0) >= TOP_THRESHOLD]
     regular_candidates = [
@@ -150,9 +155,30 @@ def ensure_category_presence(
         regular.extend(matching)
         low_priority = [item for item in low_priority if item not in matching]
 
-    regular.sort(key=lambda item: int(item.get("importance_score", 0)), reverse=True)
-    low_priority.sort(key=lambda item: int(item.get("importance_score", 0)), reverse=True)
+    regular.sort(key=lambda item: (int(item.get("importance_score", 0)), int(item.get("priority", 50))), reverse=True)
+    low_priority.sort(key=lambda item: (int(item.get("importance_score", 0)), int(item.get("priority", 50))), reverse=True)
     return regular, low_priority
+
+
+def supplement_with_recent_database_items(
+    repository: ArticleRepository,
+    eligible_items: list[dict[str, Any]],
+    recent_days: int,
+    report_top_n: int,
+) -> tuple[list[dict[str, Any]], int]:
+    stored_items = repository.get_recent_report_items(
+        recent_days=recent_days,
+        limit=max(report_top_n * 3, MIN_REPORT_ITEMS * 2),
+    )
+    existing_urls = {item.get("url", "") for item in eligible_items}
+    supplement_items = [item for item in stored_items if item.get("url", "") not in existing_urls]
+
+    needed = max(MIN_REPORT_ITEMS - len(eligible_items), 0)
+    if needed == 0:
+        needed = min(len(supplement_items), report_top_n)
+
+    chosen_supplements = supplement_items[:needed]
+    return eligible_items + chosen_supplements, len(chosen_supplements)
 
 
 def run_pipeline() -> dict[str, Any]:
@@ -168,7 +194,7 @@ def run_pipeline() -> dict[str, Any]:
     )
     daily_editor = DailyEditor(api_key=settings.openai_api_key, model=settings.openai_model)
 
-    logger.info("开始抓取 RSS 资讯...")
+    logger.info("开始抓取资讯源...")
     raw_items = fetch_all_rss_items(settings.sources_file)
     logger.info("原始抓取条数: %s", len(raw_items))
 
@@ -195,11 +221,9 @@ def run_pipeline() -> dict[str, Any]:
     classified_items = classify_items(unique_items)
 
     cards: list[dict[str, Any]] = []
-    inserted_count = 0
     processed_count = 0
     for item in sort_items_by_priority(classified_items, settings.report_timezone):
         article_id = repository.insert_article(item)
-        inserted_count += 1
         card = {**item, **summarizer.summarize_item(item)}
         repository.insert_article_summary(article_id, card)
         cards.append(card)
@@ -216,11 +240,14 @@ def run_pipeline() -> dict[str, Any]:
         )
     ]
 
-    if not eligible_items:
-        logger.info("本次没有新增可用内容，尝试从数据库重建日报。")
-        eligible_items = repository.get_recent_report_items(
+    db_supplement_count = 0
+    if len(eligible_items) < MIN_REPORT_ITEMS:
+        logger.info("本次可用条目偏少，尝试从数据库补足最近 %s 天内容。", settings.recent_days)
+        eligible_items, db_supplement_count = supplement_with_recent_database_items(
+            repository=repository,
+            eligible_items=eligible_items,
             recent_days=settings.recent_days,
-            limit=max(settings.report_top_n * 2, MIN_REPORT_ITEMS),
+            report_top_n=settings.report_top_n,
         )
 
     top_items, section_items, low_priority_items = partition_items(eligible_items)
@@ -235,6 +262,7 @@ def run_pipeline() -> dict[str, Any]:
         "regular_count": sum(len(items) for items in section_items.values()),
         "low_priority_count": len(low_priority_items),
         "included_count": len(included_items),
+        "db_supplement_count": db_supplement_count,
     }
 
     editorial_summary = daily_editor.build_daily_summary(included_items, stats)
@@ -271,6 +299,7 @@ def main() -> None:
         print(f"收录到重点区条数: {stats['top_count']}")
         print(f"收录到普通区条数: {stats['regular_count']}")
         print(f"低优先级简讯条数: {stats['low_priority_count']}")
+        print(f"数据库补足条数: {stats['db_supplement_count']}")
         print(f"最终日报路径: {stats['report_path']}")
     except Exception as exc:
         logger.exception("主流程运行失败: %s", exc)
