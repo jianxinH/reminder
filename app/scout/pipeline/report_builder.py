@@ -16,13 +16,20 @@ def build_daily_report(items: list[dict], top_n: int, timezone_name: str) -> str
     lines = [
         f"# AI Daily Scout 日报 - {report_date}",
         "",
-        f"- 生成时间区：`{timezone_name}`",
+        f"- 生成时区：`{timezone_name}`",
         f"- 收录条数：`{len(selected_items)}`",
         "",
     ]
 
     if not selected_items:
-        lines.extend(["## 今日概览", "", "今天没有抓取到可收录的新内容。", ""])
+        lines.extend(
+            [
+                "## 今日概览",
+                "",
+                "今天没有抓取到可收录的新内容。",
+                "",
+            ]
+        )
         return "\n".join(lines)
 
     lines.extend(["## 今日概览", ""])

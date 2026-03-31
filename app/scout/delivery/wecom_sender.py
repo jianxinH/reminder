@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import httpx
@@ -21,7 +22,7 @@ def send_report_to_wecom(
         f"{base_url}/cgi-bin/message/send",
         params={"access_token": access_token},
         json={
-            "touser": touser,
+            "touser": touser.strip(),
             "msgtype": "text",
             "agentid": int(agent_id),
             "text": {"content": content},
@@ -56,25 +57,30 @@ def build_wecom_message(report_path: str, report_url: str = "") -> str:
     lines = [line.strip() for line in content.splitlines() if line.strip()]
 
     title = "AI Daily Scout 日报"
-    body_lines: list[str] = []
     item_lines: list[str] = []
+    summary_lines: list[str] = []
 
     for line in lines:
         if line.startswith("# "):
             title = line[2:].strip()
         elif line.startswith("### "):
-            item_lines.append(line[4:].strip())
-        elif line.startswith("- 摘要：") and len(body_lines) < 3:
-            body_lines.append(line.replace("- 摘要：", "", 1).strip())
+            item_lines.append(strip_heading_number(line[4:].strip()))
+        elif line.startswith("- 摘要：") and len(summary_lines) < 5:
+            summary_lines.append(line.replace("- 摘要：", "", 1).strip())
 
     message_parts = [title]
     if item_lines:
         message_parts.append("重点条目：")
-        message_parts.extend(f"{index + 1}. {item}" for index, item in enumerate(item_lines[:5]))
-    if body_lines:
+        for index, item in enumerate(item_lines[:8], start=1):
+            message_parts.append(f"{index}. {item}")
+    if summary_lines:
         message_parts.append("摘要：")
-        message_parts.extend(body_lines[:3])
+        message_parts.extend(summary_lines[:5])
     if report_url:
         message_parts.append(f"完整日报：{report_url}")
 
     return "\n".join(message_parts)[:4000]
+
+
+def strip_heading_number(value: str) -> str:
+    return re.sub(r"^\d+\.\s*", "", value).strip()

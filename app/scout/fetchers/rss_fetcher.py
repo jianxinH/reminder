@@ -8,7 +8,10 @@ from xml.etree import ElementTree as ET
 import httpx
 import yaml
 
+from app.scout.utils.logger import get_logger
+
 ATOM_NS = {"atom": "http://www.w3.org/2005/Atom"}
+logger = get_logger(__name__)
 
 
 def load_sources(sources_file: str) -> list[dict[str, Any]]:
@@ -21,7 +24,12 @@ def load_sources(sources_file: str) -> list[dict[str, Any]]:
 def fetch_all_rss_items(sources_file: str) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for source in load_sources(sources_file):
-        items.extend(fetch_rss_items(source))
+        try:
+            source_items = fetch_rss_items(source)
+        except Exception as exc:
+            logger.warning("跳过 RSS 源 %s: %s", source.get("name", source.get("url", "unknown")), exc)
+            continue
+        items.extend(source_items)
     return items
 
 

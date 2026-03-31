@@ -1,10 +1,35 @@
 sources:
+  # International / official blogs
   - name: OpenAI News
     url: https://openai.com/news/rss.xml
     enabled: true
+
   - name: Hugging Face Blog
     url: https://huggingface.co/blog/feed.xml
     enabled: true
+
+  - name: Google DeepMind Blog
+    url: https://deepmind.google/discover/blog/feed.xml
+    enabled: true
+
+  - name: Microsoft AI Blog
+    url: https://blogs.microsoft.com/ai/feed/
+    enabled: true
+
+  - name: Google Research Blog
+    url: https://research.google/blog/rss/
+    enabled: true
+
+  # China / Chinese-language sources
+  - name: Qwen Blog
+    url: https://qwenlm.github.io/blog/index.xml
+    enabled: true
+
+  - name: Microsoft Research Asia
+    url: https://www.msra.cn/zh-cn/feed
+    enabled: true
+
+  # Optional sources kept disabled by default until you confirm they fit your taste
   - name: Anthropic News
     url: https://www.anthropic.com/news/rss.xml
     enabled: false
