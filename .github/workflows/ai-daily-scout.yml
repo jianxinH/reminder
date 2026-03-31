@@ -82,6 +82,7 @@ jobs:
         env:
           SCOUT_REPORT_PATH: ${{ steps.report.outputs.report_path }}
           SCOUT_REPORT_URL: https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/${{ steps.report.outputs.report_path }}
+          WECOM_BOT_WEBHOOK: ${{ secrets.WECOM_BOT_WEBHOOK }}
           WECOM_CORP_ID: ${{ secrets.WECOM_CORP_ID }}
           WECOM_AGENT_ID: ${{ secrets.WECOM_AGENT_ID }}
           WECOM_SECRET: ${{ secrets.WECOM_SECRET }}
@@ -91,8 +92,8 @@ jobs:
           HTTPS_PROXY: http://127.0.0.1:7890
           NO_PROXY: 127.0.0.1,localhost
         run: |
-          if [ -z "$WECOM_CORP_ID" ] || [ -z "$WECOM_AGENT_ID" ] || [ -z "$WECOM_SECRET" ] || [ -z "$WECOM_TOUSER" ]; then
-            echo "WeCom secrets are incomplete, skip sending."
+          if [ -z "$WECOM_BOT_WEBHOOK" ] && { [ -z "$WECOM_CORP_ID" ] || [ -z "$WECOM_AGENT_ID" ] || [ -z "$WECOM_SECRET" ] || [ -z "$WECOM_TOUSER" ]; }; then
+            echo "WeCom webhook or app secrets are incomplete, skip sending."
             exit 0
           fi
           export PYTHONPATH="${GITHUB_WORKSPACE}"

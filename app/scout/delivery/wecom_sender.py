@@ -8,16 +8,23 @@ import httpx
 
 def send_report_to_wecom(
     report_path: str,
-    corp_id: str,
-    agent_id: str,
-    secret: str,
-    touser: str,
+    corp_id: str = "",
+    agent_id: str = "",
+    secret: str = "",
+    touser: str = "",
     base_url: str = "https://qyapi.weixin.qq.com",
     report_url: str = "",
+    webhook_url: str = "",
 ) -> dict:
-    access_token = get_access_token(corp_id=corp_id, secret=secret, base_url=base_url)
     content = build_wecom_message(report_path=report_path, report_url=report_url)
 
+    if webhook_url.strip():
+        return send_report_via_webhook(webhook_url=webhook_url.strip(), content=content)
+
+    if not corp_id or not agent_id or not secret or not touser:
+        raise RuntimeError("WeCom send failed: missing webhook or app credentials")
+
+    access_token = get_access_token(corp_id=corp_id, secret=secret, base_url=base_url)
     response = httpx.post(
         f"{base_url}/cgi-bin/message/send",
         params={"access_token": access_token},
@@ -35,6 +42,22 @@ def send_report_to_wecom(
     payload = response.json()
     if payload.get("errcode") != 0:
         raise RuntimeError(f"WeCom send failed: {payload}")
+    return payload
+
+
+def send_report_via_webhook(webhook_url: str, content: str) -> dict:
+    response = httpx.post(
+        webhook_url,
+        json={
+            "msgtype": "text",
+            "text": {"content": content},
+        },
+        timeout=20.0,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if payload.get("errcode") != 0:
+        raise RuntimeError(f"WeCom webhook send failed: {payload}")
     return payload
 
 

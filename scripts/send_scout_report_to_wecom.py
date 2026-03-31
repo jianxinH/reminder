@@ -8,12 +8,13 @@ from app.scout.delivery.wecom_sender import send_report_to_wecom
 
 def main() -> None:
     report_path = os.environ["SCOUT_REPORT_PATH"]
-    corp_id = os.environ["WECOM_CORP_ID"]
-    agent_id = os.environ["WECOM_AGENT_ID"]
-    secret = os.environ["WECOM_SECRET"]
-    touser = os.environ["WECOM_TOUSER"]
+    corp_id = os.environ.get("WECOM_CORP_ID", "")
+    agent_id = os.environ.get("WECOM_AGENT_ID", "")
+    secret = os.environ.get("WECOM_SECRET", "")
+    touser = os.environ.get("WECOM_TOUSER", "")
     base_url = os.environ.get("WECOM_BASE_URL", "https://qyapi.weixin.qq.com")
     report_url = os.environ.get("SCOUT_REPORT_URL", "")
+    webhook_url = os.environ.get("WECOM_BOT_WEBHOOK", "")
 
     path = Path(report_path)
     if not path.exists():
@@ -27,6 +28,7 @@ def main() -> None:
         touser=touser,
         base_url=base_url,
         report_url=report_url,
+        webhook_url=webhook_url,
     )
 
 
