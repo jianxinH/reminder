@@ -48,8 +48,6 @@ jobs:
           SCOUT_RECENT_DAYS: ${{ vars.SCOUT_RECENT_DAYS || '3' }}
           SCOUT_MAX_SUMMARY_ITEMS: ${{ vars.SCOUT_MAX_SUMMARY_ITEMS || '30' }}
           SCOUT_LOG_LEVEL: INFO
-          http_proxy: http://127.0.0.1:7890
-          https_proxy: http://127.0.0.1:7890
           HTTP_PROXY: http://127.0.0.1:7890
           HTTPS_PROXY: http://127.0.0.1:7890
           NO_PROXY: 127.0.0.1,localhost
@@ -89,8 +87,6 @@ jobs:
           WECOM_SECRET: ${{ secrets.WECOM_SECRET }}
           WECOM_TOUSER: ${{ secrets.WECOM_TOUSER }}
           WECOM_BASE_URL: ${{ vars.WECOM_BASE_URL || 'https://qyapi.weixin.qq.com' }}
-          http_proxy: http://127.0.0.1:7890
-          https_proxy: http://127.0.0.1:7890
           HTTP_PROXY: http://127.0.0.1:7890
           HTTPS_PROXY: http://127.0.0.1:7890
           NO_PROXY: 127.0.0.1,localhost
