@@ -244,11 +244,16 @@ def run_pipeline() -> dict[str, Any]:
     logger.info("最近 %s 天内条数: %s", settings.recent_days, len(recent_items))
 
     filtered_items: list[dict[str, Any]] = []
+    existing_recent_urls: list[str] = []
     for item in recent_items:
         if repository.exists_by_url(item["url"]):
+            existing_recent_urls.append(item["url"])
             continue
         filtered_items.append(item)
     logger.info("过滤数据库中已存在 URL 后条数: %s", len(filtered_items))
+
+    existing_recent_items = repository.get_items_by_urls(existing_recent_urls, limit=max(TARGET_REPORT_ITEMS * 3, settings.report_top_n * 3))
+    logger.info("从数据库回收已存在近期条数: %s", len(existing_recent_items))
 
     unique_items = dedupe_items(filtered_items)
     logger.info("去重后条数: %s", len(unique_items))
@@ -264,7 +269,7 @@ def run_pipeline() -> dict[str, Any]:
         cards.append(card)
         processed_count += 1
 
-    eligible_items = [
+    new_eligible_items = [
         item
         for item in cards
         if (
@@ -278,6 +283,7 @@ def run_pipeline() -> dict[str, Any]:
             or item.get("source_type") in {"official", "open_source", "research"}
         )
     ]
+    eligible_items = dedupe_items(existing_recent_items + new_eligible_items)
 
     db_supplement_count = 0
     if len(eligible_items) < TARGET_REPORT_ITEMS:

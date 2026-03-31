@@ -164,12 +164,65 @@ class ArticleRepository:
                     s.model_name
                 FROM articles a
                 LEFT JOIN article_summaries s ON s.article_id = a.id
-                WHERE a.published_at >= ?
-                ORDER BY COALESCE(s.importance_score, 50) DESC, a.published_at DESC, a.id DESC
+                WHERE
+                    a.published_at >= ?
+                    OR (a.published_at IS NULL OR a.published_at = '') AND a.created_at >= ?
+                ORDER BY COALESCE(s.importance_score, 50) DESC, COALESCE(NULLIF(a.published_at, ''), a.created_at) DESC, a.id DESC
                 LIMIT ?
                 """,
-                (cutoff_timestamp(recent_days), limit),
+                (cutoff_timestamp(recent_days), cutoff_timestamp(recent_days), limit),
             ).fetchall()
+            return [self._row_to_item(row) for row in rows]
+        finally:
+            conn.close()
+
+    def get_items_by_urls(self, urls: list[str], limit: int | None = None) -> list[dict[str, Any]]:
+        clean_urls = [url for url in urls if url]
+        if not clean_urls:
+            return []
+
+        placeholders = ",".join("?" for _ in clean_urls)
+        sql = f"""
+            SELECT
+                a.id,
+                a.title,
+                a.url,
+                a.source,
+                a.source_type,
+                a.published_at,
+                a.summary,
+                a.raw_category,
+                a.category_hint,
+                a.priority,
+                a.content_hash,
+                s.is_ai_related,
+                s.zh_title,
+                s.category_suggestion,
+                s.one_line_takeaway,
+                s.what_happened,
+                s.why_it_matters,
+                s.who_should_care,
+                s.my_commentary,
+                s.short_summary,
+                s.include_in_report,
+                s.importance_score,
+                s.confidence,
+                s.tags,
+                s.related_sources,
+                s.model_name
+            FROM articles a
+            LEFT JOIN article_summaries s ON s.article_id = a.id
+            WHERE a.url IN ({placeholders})
+            ORDER BY COALESCE(s.importance_score, 50) DESC, COALESCE(NULLIF(a.published_at, ''), a.created_at) DESC, a.id DESC
+        """
+        params: list[Any] = list(clean_urls)
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+
+        conn = self._connect()
+        try:
+            rows = conn.execute(sql, params).fetchall()
             return [self._row_to_item(row) for row in rows]
         finally:
             conn.close()

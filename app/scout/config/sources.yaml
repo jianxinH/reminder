@@ -177,7 +177,7 @@ media_sources:
 
   - name: VentureBeat AI
     url: https://venturebeat.com/ai/
-    enabled: true
+    enabled: false
     source_type: media
     fetch_strategy: html_list
     parser: venturebeat_ai
