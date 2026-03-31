@@ -43,7 +43,6 @@ def fetch_text(url: str, *, timeout: float, referer: str = "") -> str:
                     timeout=timeout,
                     follow_redirects=True,
                     headers=request_headers,
-                    http2=True,
                 ) as client:
                     response = client.get(url)
                     response.raise_for_status()
