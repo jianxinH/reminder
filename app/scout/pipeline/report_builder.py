@@ -130,18 +130,6 @@ def build_daily_report(
         if section_name == "研究 / 新闻 / 其他":
             lines.extend(render_quick_links_block(items, low_priority_items, rendered_urls=section_rendered_urls))
 
-    trend_observations = editorial_summary.get("trend_observations", [])
-    if trend_observations:
-        lines.extend(["## 今日趋势观察", ""])
-        lines.extend([f"- {item}" for item in trend_observations[:4]])
-        lines.append("")
-
-    follow_up_topics = editorial_summary.get("follow_up_topics", [])
-    if follow_up_topics:
-        lines.extend(["## 值得继续跟踪的话题", ""])
-        lines.extend([f"- {item}" for item in follow_up_topics[:3]])
-        lines.append("")
-
     if low_priority_items:
         lines.extend(["## 低优先级简讯", ""])
         for item in low_priority_items[:12]:
@@ -151,10 +139,6 @@ def build_daily_report(
                 f"[原文]({item.get('url') or ''})"
             )
         lines.append("")
-
-    low_priority_summary = editorial_summary.get("low_priority_summary", "")
-    if low_priority_summary:
-        lines.extend(["## 主编补充观察", "", low_priority_summary, ""])
 
     return "\n".join(lines).strip() + "\n"
 

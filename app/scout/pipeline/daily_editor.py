@@ -103,13 +103,19 @@ class DailyEditor:
     def _normalize_summary(self, parsed: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
         if not parsed:
             return fallback
+        trend_items = filter_editorial_lines(
+            normalize_string_list(parsed.get("trend_observations"), fallback["trend_observations"], 4),
+            section="trend",
+        )
+        follow_up_items = filter_editorial_lines(
+            normalize_string_list(parsed.get("follow_up_topics"), fallback["follow_up_topics"], 3),
+            section="follow_up",
+        )
         return {
             "overview": clean_text(parsed.get("overview")) or fallback["overview"],
             "top_stories": normalize_string_list(parsed.get("top_stories"), fallback["top_stories"], 3),
-            "trend_observations": normalize_string_list(
-                parsed.get("trend_observations"), fallback["trend_observations"], 4
-            ),
-            "follow_up_topics": normalize_string_list(parsed.get("follow_up_topics"), fallback["follow_up_topics"], 3),
+            "trend_observations": trend_items,
+            "follow_up_topics": follow_up_items,
             "low_priority_summary": clean_text(parsed.get("low_priority_summary")) or fallback["low_priority_summary"],
         }
 
@@ -137,12 +143,12 @@ class DailyEditor:
         trend_observations = [
             f"{name}类内容占比较高，说明今天的信息流更偏向这一方向。"
             for name, _ in categories.most_common(3)
-        ] or ["今天资讯分布较分散，尚未形成单一强趋势。"]
+        ]
 
         follow_up_topics = [
             f"继续跟踪与“{tag}”相关的后续发布和产品更新。"
             for tag, _ in tags.most_common(3)
-        ] or ["继续观察主要厂商是否会在接下来几天发布更多新能力。"]
+        ]
 
         low_priority_summary = (
             "低优先级资讯主要是信息量较少、更新幅度有限或偏补充性质的动态，仍建议保留做背景跟踪。"
@@ -157,8 +163,8 @@ class DailyEditor:
         return {
             "overview": overview,
             "top_stories": top_stories[:3],
-            "trend_observations": trend_observations[:4],
-            "follow_up_topics": follow_up_topics[:3],
+            "trend_observations": filter_editorial_lines(trend_observations[:4], section="trend"),
+            "follow_up_topics": filter_editorial_lines(follow_up_topics[:3], section="follow_up"),
             "low_priority_summary": low_priority_summary,
         }
 
@@ -174,3 +180,29 @@ def normalize_string_list(value: Any, fallback: list[str], limit: int) -> list[s
 
 def clean_text(value: Any) -> str:
     return " ".join(str(value or "").replace("\n", " ").split()).strip()
+
+
+def filter_editorial_lines(lines: list[str], *, section: str) -> list[str]:
+    filtered: list[str] = []
+    seen: set[str] = set()
+    generic_markers = {
+        "trend": [
+            "内容占比较高，说明今天的信息流更偏向这一方向",
+            "资讯分布较分散",
+        ],
+        "follow_up": [
+            "继续跟踪与",
+            "后续发布和产品更新",
+            "继续观察主要厂商",
+        ],
+    }
+
+    for raw_line in lines:
+        line = clean_text(raw_line)
+        if not line or line in seen:
+            continue
+        if any(marker in line for marker in generic_markers.get(section, [])):
+            continue
+        seen.add(line)
+        filtered.append(line)
+    return filtered
