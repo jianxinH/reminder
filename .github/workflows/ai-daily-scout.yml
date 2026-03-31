@@ -18,18 +18,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
           ref: ${{ github.ref_name }}
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
+      - name: Check system Python
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          python3 --version
+          which python3
+
+      - name: Prepare virtual environment
+        run: |
+          VENV_PATH="$HOME/.venvs/ai-daily-scout"
+          mkdir -p "$HOME/.venvs"
+          if [ ! -x "$VENV_PATH/bin/python" ]; then
+            python3 -m venv "$VENV_PATH"
+          fi
+          "$VENV_PATH/bin/python" -m pip install --upgrade pip
+          "$VENV_PATH/bin/pip" install -r requirements.txt
 
       - name: Run AI Daily Scout
         env:
@@ -43,7 +48,8 @@ jobs:
           SCOUT_RECENT_DAYS: ${{ vars.SCOUT_RECENT_DAYS || '3' }}
           SCOUT_MAX_SUMMARY_ITEMS: ${{ vars.SCOUT_MAX_SUMMARY_ITEMS || '30' }}
           SCOUT_LOG_LEVEL: INFO
-        run: python run_daily.py
+        run: |
+          "$HOME/.venvs/ai-daily-scout/bin/python" run_daily.py
 
       - name: Resolve report path
         id: report
@@ -71,7 +77,6 @@ jobs:
 
       - name: Send report to WeCom
         env:
-          PYTHONPATH: ${{ github.workspace }}
           SCOUT_REPORT_PATH: ${{ steps.report.outputs.report_path }}
           SCOUT_REPORT_URL: https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/${{ steps.report.outputs.report_path }}
           WECOM_CORP_ID: ${{ secrets.WECOM_CORP_ID }}
@@ -84,7 +89,8 @@ jobs:
             echo "WeCom secrets are incomplete, skip sending."
             exit 0
           fi
-          python scripts/send_scout_report_to_wecom.py
+          export PYTHONPATH="${GITHUB_WORKSPACE}"
+          "$HOME/.venvs/ai-daily-scout/bin/python" scripts/send_scout_report_to_wecom.py
 
       - name: Upload report artifacts
         uses: actions/upload-artifact@v4
