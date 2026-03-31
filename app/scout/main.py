@@ -25,6 +25,19 @@ REGULAR_THRESHOLD = 60
 MIN_REPORT_ITEMS = 12
 TARGET_REPORT_ITEMS = 18
 MIN_LOW_PRIORITY_ITEMS = 6
+CORE_SOURCE_TYPES = {
+    "official_global",
+    "official_china",
+    "product_discovery",
+    "open_source",
+    "research",
+    "media_global",
+    "media_china",
+    "official",
+    "product",
+    "media",
+}
+HIGH_TRUST_SOURCE_TYPES = {"official_global", "official_china", "open_source", "research", "official"}
 
 
 def ensure_directories() -> None:
@@ -274,13 +287,13 @@ def run_pipeline() -> dict[str, Any]:
         for item in cards
         if (
             item.get("is_ai_related", True)
-            or item.get("source_type") in {"official", "open_source", "research", "product", "media"}
+            or item.get("source_type") in CORE_SOURCE_TYPES
         )
         and (
             item.get("include_in_report", False)
             or item.get("importance_score", 0) >= REGULAR_THRESHOLD
-            or item.get("importance_score", 0) >= 25
-            or item.get("source_type") in {"official", "open_source", "research"}
+            or item.get("importance_score", 0) >= 20
+            or item.get("source_type") in HIGH_TRUST_SOURCE_TYPES
         )
     ]
     eligible_items = dedupe_items(existing_recent_items + new_eligible_items)

@@ -18,6 +18,7 @@ def normalize_items(raw_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         raw_category = clean_text(item.get("raw_category", "") or item.get("category_hint", ""))
         published_at = str(item.get("published_at", "")).strip()
         source_type = clean_text(item.get("source_type", ""))
+        source_language = clean_text(item.get("source_language", ""))
         category_hint = clean_text(item.get("category_hint", ""))
         priority = normalize_priority(item.get("priority", 50))
 
@@ -27,6 +28,7 @@ def normalize_items(raw_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "url": url,
                 "source": source,
                 "source_type": source_type,
+                "source_language": source_language,
                 "published_at": published_at,
                 "summary": summary,
                 "raw_category": raw_category,

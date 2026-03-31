@@ -20,6 +20,7 @@ def init_db(database_path: str) -> None:
                 url TEXT NOT NULL UNIQUE,
                 source TEXT,
                 source_type TEXT,
+                source_language TEXT,
                 published_at TEXT,
                 summary TEXT,
                 raw_category TEXT,
@@ -85,6 +86,7 @@ def init_db(database_path: str) -> None:
         ensure_column(cursor, "article_summaries", "short_summary", "TEXT")
         ensure_column(cursor, "article_summaries", "related_sources", "TEXT")
         ensure_column(cursor, "articles", "source_type", "TEXT")
+        ensure_column(cursor, "articles", "source_language", "TEXT")
         ensure_column(cursor, "articles", "category_hint", "TEXT")
         ensure_column(cursor, "articles", "priority", "INTEGER DEFAULT 50")
 

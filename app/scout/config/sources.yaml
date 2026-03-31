@@ -1,103 +1,165 @@
-official_sources:
+official_global:
   - name: OpenAI News
     url: https://openai.com/news/rss.xml
     enabled: true
-    source_type: official
+    source_type: official_global
     fetch_strategy: rss
+    source_language: en
     category_hint: 新闻
     priority: 95
 
   - name: Anthropic News
     url: https://www.anthropic.com/news
     enabled: true
-    source_type: official
+    source_type: official_global
     fetch_strategy: html_list
     parser: anthropic_news
+    source_language: en
     category_hint: 新闻
     priority: 92
 
   - name: Anthropic Research
     url: https://www.anthropic.com/research
     enabled: true
-    source_type: official
+    source_type: official_global
     fetch_strategy: html_list
     parser: anthropic_research
+    source_language: en
     category_hint: 研究
     priority: 94
 
   - name: Google DeepMind Blog
     url: https://deepmind.google/discover/blog/
     enabled: true
-    source_type: official
+    source_type: official_global
     fetch_strategy: html_list
     parser: deepmind_blog
+    source_language: en
     category_hint: 新闻
     priority: 90
 
   - name: Google DeepMind Publications
     url: https://deepmind.google/research/publications/
     enabled: true
-    source_type: official
+    source_type: official_global
     fetch_strategy: html_list
     parser: deepmind_publications
+    source_language: en
     category_hint: 研究
     priority: 88
 
   - name: Hugging Face Blog
     url: https://huggingface.co/blog/feed.xml
     enabled: true
-    source_type: official
+    source_type: official_global
     fetch_strategy: rss
+    source_language: en
     category_hint: 产品
     priority: 89
 
-  - name: Hugging Face Daily Papers
+  - name: Hugging Face Papers
     url: https://huggingface.co/papers
     enabled: true
-    source_type: official
+    source_type: official_global
     fetch_strategy: html_list
     parser: huggingface_papers
+    source_language: en
     category_hint: 研究
     priority: 82
 
-product_sources:
+  - name: Hugging Face Trending Papers
+    url: https://huggingface.co/papers/trending
+    enabled: true
+    source_type: official_global
+    fetch_strategy: html_list
+    parser: huggingface_trending_papers
+    source_language: en
+    category_hint: 研究
+    priority: 84
+
+official_china:
+  - name: Qwen Blog
+    url: https://qwenlm.github.io/blog/
+    enabled: true
+    source_type: official_china
+    fetch_strategy: html_list
+    parser: qwen_blog
+    source_language: zh
+    category_hint: 新闻
+    priority: 90
+
+  - name: Qwen Code Docs Blog
+    url: https://qwenlm.github.io/qwen-code-docs/en/blog/
+    enabled: true
+    source_type: official_china
+    fetch_strategy: html_list
+    parser: qwen_code_blog
+    source_language: zh
+    category_hint: 产品
+    priority: 86
+
+  - name: Zhipu News
+    url: https://www.zhipuai.cn/en/about
+    enabled: true
+    source_type: official_china
+    fetch_strategy: html_list
+    parser: zhipu_news
+    source_language: zh
+    category_hint: 融资/公司动态
+    priority: 88
+
+  - name: Moonshot Open Platform Changelog
+    url: https://platform.moonshot.cn/blog/posts/changelog
+    enabled: true
+    source_type: official_china
+    fetch_strategy: html_list
+    parser: moonshot_updates
+    source_language: zh
+    category_hint: 研究
+    priority: 87
+
+product_discovery:
   - name: Product Hunt Artificial Intelligence
     url: https://www.producthunt.com/topics/artificial-intelligence
     enabled: false
-    source_type: product
+    source_type: product_discovery
     fetch_strategy: html_list
     parser: product_hunt
     referer: https://www.producthunt.com/
+    source_language: en
     category_hint: 产品
     priority: 78
 
   - name: Product Hunt AI Agents
     url: https://www.producthunt.com/categories/ai-agents
     enabled: false
-    source_type: product
+    source_type: product_discovery
     fetch_strategy: html_list
     parser: product_hunt
     referer: https://www.producthunt.com/
+    source_language: en
     category_hint: 应用
     priority: 80
 
   - name: Product Hunt AI Coding Agents
     url: https://www.producthunt.com/categories/ai-coding-agents
     enabled: false
-    source_type: product
+    source_type: product_discovery
     fetch_strategy: html_list
     parser: product_hunt
     referer: https://www.producthunt.com/
+    source_language: en
     category_hint: 产品
     priority: 79
 
-open_source_sources:
+open_source:
   - name: GitHub Trending
     url: https://github.com/trending?since=daily
     enabled: true
     source_type: open_source
     fetch_strategy: html_list
     parser: github_trending
+    source_language: en
     category_hint: 开源
     priority: 84
 
@@ -107,6 +169,7 @@ open_source_sources:
     source_type: open_source
     fetch_strategy: html_list
     parser: github_explore
+    source_language: en
     category_hint: 开源
     priority: 72
 
@@ -116,6 +179,7 @@ open_source_sources:
     source_type: open_source
     fetch_strategy: html_list
     parser: github_topic
+    source_language: en
     category_hint: 开源
     priority: 83
 
@@ -125,6 +189,7 @@ open_source_sources:
     source_type: open_source
     fetch_strategy: html_list
     parser: github_topic
+    source_language: en
     category_hint: 开源
     priority: 83
 
@@ -134,6 +199,7 @@ open_source_sources:
     source_type: open_source
     fetch_strategy: html_list
     parser: github_topic
+    source_language: en
     category_hint: 开源
     priority: 84
 
@@ -144,6 +210,7 @@ research_sources:
     source_type: research
     fetch_strategy: html_list
     parser: arxiv_list
+    source_language: en
     category_hint: 研究
     priority: 86
 
@@ -153,8 +220,49 @@ research_sources:
     source_type: research
     fetch_strategy: html_list
     parser: arxiv_list
+    source_language: en
     category_hint: 研究
     priority: 85
+
+  - name: arXiv cs.CL recent
+    url: https://arxiv.org/list/cs.CL/recent
+    enabled: true
+    source_type: research
+    fetch_strategy: html_list
+    parser: arxiv_list
+    source_language: en
+    category_hint: 研究
+    priority: 84
+
+  - name: arXiv cs.LG recent
+    url: https://arxiv.org/list/cs.LG/recent
+    enabled: true
+    source_type: research
+    fetch_strategy: html_list
+    parser: arxiv_list
+    source_language: en
+    category_hint: 研究
+    priority: 84
+
+  - name: Hugging Face Papers
+    url: https://huggingface.co/papers
+    enabled: true
+    source_type: research
+    fetch_strategy: html_list
+    parser: huggingface_papers
+    source_language: en
+    category_hint: 研究
+    priority: 80
+
+  - name: Hugging Face Trending Papers
+    url: https://huggingface.co/papers/trending
+    enabled: true
+    source_type: research
+    fetch_strategy: html_list
+    parser: huggingface_trending_papers
+    source_language: en
+    category_hint: 研究
+    priority: 82
 
   - name: Papers with Code Trending Papers
     url: https://paperswithcode.com/
@@ -162,25 +270,59 @@ research_sources:
     source_type: research
     fetch_strategy: html_list
     parser: papers_with_code
+    source_language: en
     category_hint: 研究
     priority: 74
 
-media_sources:
+media_global:
   - name: TechCrunch AI
     url: https://techcrunch.com/tag/artificial-intelligence/
     enabled: true
-    source_type: media
+    source_type: media_global
     fetch_strategy: html_list
     parser: techcrunch_ai
+    source_language: en
     category_hint: 新闻
     priority: 76
 
   - name: VentureBeat AI
     url: https://venturebeat.com/ai/
     enabled: false
-    source_type: media
+    source_type: media_global
     fetch_strategy: html_list
     parser: venturebeat_ai
     referer: https://venturebeat.com/
+    source_language: en
     category_hint: 新闻
     priority: 76
+
+media_china:
+  - name: 36氪 AI
+    url: https://36kr.com/information/AI
+    enabled: true
+    source_type: media_china
+    fetch_strategy: html_list
+    parser: thirtysixkr_ai
+    source_language: zh
+    category_hint: 新闻
+    priority: 68
+
+  - name: 机器之心
+    url: https://www.jiqizhixin.com/
+    enabled: true
+    source_type: media_china
+    fetch_strategy: html_list
+    parser: jiqizhixin
+    source_language: zh
+    category_hint: 新闻
+    priority: 70
+
+  - name: 新智元
+    url: https://www.xinzhiyuan.com/
+    enabled: true
+    source_type: media_china
+    fetch_strategy: html_list
+    parser: xinzhiyuan
+    source_language: zh
+    category_hint: 新闻
+    priority: 69

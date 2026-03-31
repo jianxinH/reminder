@@ -350,12 +350,39 @@ def estimate_importance(item: dict[str, Any], is_ai_related: bool) -> int:
     score += sum(12 for keyword in high_signal if keyword in text)
     score += sum(6 for keyword in medium_signal if keyword in text)
     score -= sum(8 for keyword in low_signal if keyword in text)
+    score += source_type_bonus(item.get("source_type", ""))
+    score += source_language_bonus(item.get("source_language", ""))
 
     if len(clean_sentence(item.get("summary", ""))) >= 120:
         score += 8
     if item.get("related_sources"):
         score += 6
     return max(0, min(score, 95))
+
+
+def source_type_bonus(source_type: str) -> int:
+    mapping = {
+        "official_global": 18,
+        "official_china": 16,
+        "product_discovery": 8,
+        "open_source": 12,
+        "research": 14,
+        "media_global": 6,
+        "media_china": 4,
+        "official": 14,
+        "product": 8,
+        "media": 5,
+    }
+    return mapping.get(str(source_type or "").strip(), 0)
+
+
+def source_language_bonus(source_language: str) -> int:
+    language = str(source_language or "").strip().lower()
+    if language == "zh":
+        return 2
+    if language == "en":
+        return 1
+    return 0
 
 
 def local_reason(item: dict[str, Any], is_ai_related: bool, reason: str) -> str:

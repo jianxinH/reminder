@@ -6,11 +6,13 @@ import yaml
 
 
 SOURCE_GROUPS = (
-    "official_sources",
-    "product_sources",
-    "open_source_sources",
+    "official_global",
+    "official_china",
+    "product_discovery",
+    "open_source",
     "research_sources",
-    "media_sources",
+    "media_global",
+    "media_china",
 )
 
 
@@ -33,6 +35,7 @@ def load_sources(sources_file: str) -> list[dict[str, Any]]:
                     "fetch_strategy": source.get("fetch_strategy", "rss"),
                     "parser": source.get("parser", ""),
                     "referer": source.get("referer", ""),
+                    "source_language": source.get("source_language", infer_source_language(group_name)),
                     "category_hint": source.get("category_hint", ""),
                     "priority": int(source.get("priority", 50)),
                 }
@@ -42,10 +45,17 @@ def load_sources(sources_file: str) -> list[dict[str, Any]]:
 
 def infer_source_type(group_name: str) -> str:
     mapping = {
-        "official_sources": "official",
-        "product_sources": "product",
-        "open_source_sources": "open_source",
+        "official_global": "official_global",
+        "official_china": "official_china",
+        "product_discovery": "product_discovery",
+        "open_source": "open_source",
         "research_sources": "research",
-        "media_sources": "media",
+        "media_global": "media_global",
+        "media_china": "media_china",
     }
-    return mapping.get(group_name, "media")
+    return mapping.get(group_name, "media_global")
+
+
+def infer_source_language(group_name: str) -> str:
+    chinese_groups = {"official_china", "media_china"}
+    return "zh" if group_name in chinese_groups else "en"

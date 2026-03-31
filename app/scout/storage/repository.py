@@ -26,15 +26,16 @@ class ArticleRepository:
             cursor = conn.execute(
                 """
                 INSERT INTO articles (
-                    title, url, source, source_type, published_at, summary, raw_category,
+                    title, url, source, source_type, source_language, published_at, summary, raw_category,
                     category_hint, priority, content_hash, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item.get("title", ""),
                     item.get("url", ""),
                     item.get("source", ""),
                     item.get("source_type", ""),
+                    item.get("source_language", ""),
                     item.get("published_at", ""),
                     item.get("summary", ""),
                     item.get("raw_category", ""),
@@ -141,6 +142,7 @@ class ArticleRepository:
                     a.url,
                     a.source,
                     a.source_type,
+                    a.source_language,
                     a.published_at,
                     a.summary,
                     a.raw_category,
@@ -186,10 +188,11 @@ class ArticleRepository:
             SELECT
                 a.id,
                 a.title,
-                a.url,
-                a.source,
-                a.source_type,
-                a.published_at,
+                    a.url,
+                    a.source,
+                    a.source_type,
+                    a.source_language,
+                    a.published_at,
                 a.summary,
                 a.raw_category,
                 a.category_hint,
@@ -234,6 +237,7 @@ class ArticleRepository:
             "url": row["url"],
             "source": row["source"],
             "source_type": row["source_type"] or "",
+            "source_language": row["source_language"] or "",
             "published_at": row["published_at"],
             "summary": row["summary"],
             "raw_category": row["raw_category"],

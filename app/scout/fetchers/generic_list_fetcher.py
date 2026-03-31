@@ -36,12 +36,28 @@ def fetch_html_list_items(source: dict[str, Any]) -> list[dict[str, Any]]:
         return parse_generic_articles(text, source, include_patterns=["/research/"])
     if parser == "huggingface_papers":
         return parse_huggingface_papers(text, source)
+    if parser == "huggingface_trending_papers":
+        return parse_huggingface_papers(text, source)
     if parser == "papers_with_code":
         return parse_papers_with_code(text, source)
     if parser == "techcrunch_ai":
         return parse_generic_articles(text, source, include_patterns=["/20"])
     if parser == "venturebeat_ai":
         return parse_generic_articles(text, source, include_patterns=["/20", "/ai/"])
+    if parser == "qwen_blog":
+        return parse_generic_articles(text, source, include_patterns=["/blog/"])
+    if parser == "qwen_code_blog":
+        return parse_generic_articles(text, source, include_patterns=["/qwen-code-docs/", "/blog/"])
+    if parser == "zhipu_news":
+        return parse_generic_articles(text, source, include_patterns=["/en/about", "/zh/about", "/news", "/research"])
+    if parser == "moonshot_updates":
+        return parse_generic_articles(text, source, include_patterns=["/blog/posts/"])
+    if parser == "thirtysixkr_ai":
+        return parse_generic_articles(text, source, include_patterns=["/p/", "/information/"])
+    if parser == "jiqizhixin":
+        return parse_generic_articles(text, source, include_patterns=["/articles/"])
+    if parser == "xinzhiyuan":
+        return parse_generic_articles(text, source, include_patterns=["/"])
     return parse_generic_articles(text, source, include_patterns=[])
 
 
@@ -210,7 +226,8 @@ def build_item(
         "title": title,
         "url": url,
         "source": source.get("name") or hostname(url),
-        "source_type": source.get("source_type", "media"),
+        "source_type": source.get("source_type", "media_global"),
+        "source_language": source.get("source_language", "en"),
         "published_at": published_at,
         "summary": summary,
         "category_hint": source.get("category_hint", ""),

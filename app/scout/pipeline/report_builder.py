@@ -14,10 +14,15 @@ SECTION_ORDER = [
 ]
 
 SOURCE_TYPE_LABELS = {
-    "official": "官方发布",
-    "product": "产品发现",
+    "official_global": "国际官方发布",
+    "official_china": "中国官方发布",
+    "product_discovery": "产品发现",
     "open_source": "开源生态",
     "research": "研究趋势",
+    "media_global": "国际媒体报道",
+    "media_china": "中文媒体报道",
+    "official": "官方发布",
+    "product": "产品发现",
     "media": "媒体报道",
 }
 
@@ -112,8 +117,7 @@ def build_daily_report(
 def render_featured_item(index: int, item: dict[str, Any], all_items: list[dict[str, Any]]) -> list[str]:
     lines = [
         f"### {index}. {item.get('zh_title') or item.get('title')}",
-        f"- **一句话结论：** {item.get('one_line_takeaway') or '信息不足'}",
-        f"- **发生了什么：** {item.get('what_happened') or '信息不足'}",
+        f"- **摘要：** {build_item_summary(item)}",
         f"- **为什么重要：** {item.get('why_it_matters') or '信息不足'}",
         f"- **谁应该关注：** {item.get('who_should_care') or '信息不足'}",
         f"- **简评：** {item.get('my_commentary') or '信息不足'}",
@@ -129,8 +133,7 @@ def render_featured_item(index: int, item: dict[str, Any], all_items: list[dict[
 def render_section_item(item: dict[str, Any], all_items: list[dict[str, Any]]) -> list[str]:
     lines = [
         f"#### {item.get('zh_title') or item.get('title')}",
-        f"- **一句话结论：** {item.get('one_line_takeaway') or '信息不足'}",
-        f"- **核心信息：** {item.get('what_happened') or '信息不足'}",
+        f"- **摘要：** {build_item_summary(item)}",
         f"- **为什么值得看：** {item.get('why_it_matters') or '信息不足'}",
         f"- **适合人群：** {item.get('who_should_care') or '信息不足'}",
         f"- **来源：** {item.get('source') or '未知来源'}",
@@ -292,3 +295,14 @@ def build_link_suggestions(
             break
 
     return suggestions
+
+
+def build_item_summary(item: dict[str, Any]) -> str:
+    summary = (
+        item.get("what_happened")
+        or item.get("short_summary")
+        or item.get("summary")
+        or item.get("one_line_takeaway")
+        or "信息不足"
+    )
+    return str(summary).strip() or "信息不足"
