@@ -198,16 +198,22 @@ def fallback_with_current_cards(
     cards: list[dict[str, Any]],
     report_top_n: int,
 ) -> tuple[list[dict[str, Any]], int]:
-    if eligible_items:
-        return eligible_items, 0
-
     fallback_candidates = [
         item
         for item in cards
-        if item.get("is_ai_related", True) or item.get("importance_score", 0) >= 20
+        if (
+            item.get("is_ai_related", True)
+            or item.get("importance_score", 0) >= 20
+            or item.get("source_type") in {"official", "open_source", "research", "product", "media"}
+        )
     ]
-    chosen = fallback_candidates[: max(report_top_n, MIN_REPORT_ITEMS)]
-    return chosen, len(chosen)
+    existing_urls = {item.get("url", "") for item in eligible_items}
+    supplements = [item for item in fallback_candidates if item.get("url", "") not in existing_urls]
+    needed = max(TARGET_REPORT_ITEMS - len(eligible_items), 0)
+    if needed <= 0:
+        needed = max(MIN_LOW_PRIORITY_ITEMS, 0)
+    chosen = supplements[: max(needed, MIN_REPORT_ITEMS - len(eligible_items), 0)]
+    return eligible_items + chosen, len(chosen)
 
 
 def run_pipeline() -> dict[str, Any]:
@@ -261,11 +267,15 @@ def run_pipeline() -> dict[str, Any]:
     eligible_items = [
         item
         for item in cards
-        if item.get("is_ai_related", True)
+        if (
+            item.get("is_ai_related", True)
+            or item.get("source_type") in {"official", "open_source", "research", "product", "media"}
+        )
         and (
             item.get("include_in_report", False)
             or item.get("importance_score", 0) >= REGULAR_THRESHOLD
-            or item.get("importance_score", 0) >= 40
+            or item.get("importance_score", 0) >= 25
+            or item.get("source_type") in {"official", "open_source", "research"}
         )
     ]
 
@@ -280,8 +290,8 @@ def run_pipeline() -> dict[str, Any]:
         )
 
     current_card_fallback_count = 0
-    if not eligible_items:
-        logger.info("数据库补足后仍无可用条目，回退到当日已处理卡片。")
+    if len(eligible_items) < TARGET_REPORT_ITEMS:
+        logger.info("可用条目仍然偏少，补充当日已处理卡片。")
         eligible_items, current_card_fallback_count = fallback_with_current_cards(
             eligible_items=eligible_items,
             cards=cards,

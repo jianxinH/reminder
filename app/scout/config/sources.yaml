@@ -63,7 +63,7 @@ official_sources:
 product_sources:
   - name: Product Hunt Artificial Intelligence
     url: https://www.producthunt.com/topics/artificial-intelligence
-    enabled: true
+    enabled: false
     source_type: product
     fetch_strategy: html_list
     parser: product_hunt
@@ -73,7 +73,7 @@ product_sources:
 
   - name: Product Hunt AI Agents
     url: https://www.producthunt.com/categories/ai-agents
-    enabled: true
+    enabled: false
     source_type: product
     fetch_strategy: html_list
     parser: product_hunt
@@ -83,7 +83,7 @@ product_sources:
 
   - name: Product Hunt AI Coding Agents
     url: https://www.producthunt.com/categories/ai-coding-agents
-    enabled: true
+    enabled: false
     source_type: product
     fetch_strategy: html_list
     parser: product_hunt

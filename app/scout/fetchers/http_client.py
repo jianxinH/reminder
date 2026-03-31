@@ -37,7 +37,7 @@ def fetch_text(url: str, *, timeout: float, referer: str = "") -> str:
         if referer:
             request_headers["Referer"] = referer
 
-        for attempt in range(3):
+        for attempt in range(2):
             try:
                 with httpx.Client(
                     timeout=timeout,
@@ -49,12 +49,15 @@ def fetch_text(url: str, *, timeout: float, referer: str = "") -> str:
                     return response.text
             except httpx.HTTPStatusError as exc:
                 last_error = exc
-                if exc.response.status_code not in {403, 429, 500, 502, 503, 504}:
+                status_code = exc.response.status_code
+                if status_code == 403:
+                    break
+                if status_code not in {429, 500, 502, 503, 504}:
                     raise
             except httpx.HTTPError as exc:
                 last_error = exc
 
-            time.sleep(min(2 * (attempt + 1), 5))
+            time.sleep(1.5 * (attempt + 1))
 
     if last_error is not None:
         raise last_error
