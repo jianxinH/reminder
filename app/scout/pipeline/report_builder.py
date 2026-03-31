@@ -26,6 +26,51 @@ SOURCE_TYPE_LABELS = {
     "media": "媒体报道",
 }
 
+SOURCE_TYPE_SECTION_STYLE = {
+    "official_global": {
+        "summary_label": "官方摘要",
+        "why_label": "发布看点",
+        "audience_label": "适合关注",
+        "roundup_title": "**官方链接速览：**",
+    },
+    "official_china": {
+        "summary_label": "国产动态摘要",
+        "why_label": "值得关注",
+        "audience_label": "适合关注",
+        "roundup_title": "**国产官方链接速览：**",
+    },
+    "product_discovery": {
+        "summary_label": "产品摘要",
+        "why_label": "体验亮点",
+        "audience_label": "适用人群",
+        "roundup_title": "**产品链接速览：**",
+    },
+    "open_source": {
+        "summary_label": "开源摘要",
+        "why_label": "技术看点",
+        "audience_label": "适合读者",
+        "roundup_title": "**开源链接速览：**",
+    },
+    "research": {
+        "summary_label": "研究摘要",
+        "why_label": "研究价值",
+        "audience_label": "适合读者",
+        "roundup_title": "**研究链接速览：**",
+    },
+    "media_global": {
+        "summary_label": "媒体摘要",
+        "why_label": "新闻价值",
+        "audience_label": "适合读者",
+        "roundup_title": "**国际媒体链接速览：**",
+    },
+    "media_china": {
+        "summary_label": "中文媒体摘要",
+        "why_label": "新闻价值",
+        "audience_label": "适合读者",
+        "roundup_title": "**中文媒体链接速览：**",
+    },
+}
+
 
 def build_daily_report(
     *,
@@ -81,7 +126,7 @@ def build_daily_report(
                 lines.extend(render_section_item(item, all_items))
                 if item.get("url"):
                     section_rendered_urls.add(item["url"])
-            lines.extend(render_link_roundup(grouped_items, rendered_urls=section_rendered_urls))
+            lines.extend(render_link_roundup(grouped_items, rendered_urls=section_rendered_urls, source_type=source_type))
         if section_name == "研究 / 新闻 / 其他":
             lines.extend(render_quick_links_block(items, low_priority_items, rendered_urls=section_rendered_urls))
 
@@ -131,11 +176,12 @@ def render_featured_item(index: int, item: dict[str, Any], all_items: list[dict[
 
 
 def render_section_item(item: dict[str, Any], all_items: list[dict[str, Any]]) -> list[str]:
+    style = get_source_type_style(item.get("source_type", ""))
     lines = [
         f"#### {item.get('zh_title') or item.get('title')}",
-        f"- **摘要：** {build_item_summary(item)}",
-        f"- **为什么值得看：** {item.get('why_it_matters') or '信息不足'}",
-        f"- **适合人群：** {item.get('who_should_care') or '信息不足'}",
+        f"- **{style['summary_label']}：** {build_item_summary(item)}",
+        f"- **{style['why_label']}：** {item.get('why_it_matters') or '信息不足'}",
+        f"- **{style['audience_label']}：** {item.get('who_should_care') or '信息不足'}",
         f"- **来源：** {item.get('source') or '未知来源'}",
         f"- **原文链接：** [原文]({item.get('url') or ''})",
     ]
@@ -159,7 +205,7 @@ def render_extended_links(
     return [f"- **{label}：** {link_text}"]
 
 
-def render_link_roundup(items: list[dict[str, Any]], *, rendered_urls: set[str]) -> list[str]:
+def render_link_roundup(items: list[dict[str, Any]], *, rendered_urls: set[str], source_type: str) -> list[str]:
     links: list[str] = []
     seen_urls = set(rendered_urls)
 
@@ -181,7 +227,7 @@ def render_link_roundup(items: list[dict[str, Any]], *, rendered_urls: set[str])
     if not links:
         return []
 
-    lines = ["**资讯链接速览：**"]
+    lines = [get_source_type_style(source_type)["roundup_title"]]
     lines.extend(links[:12])
     lines.append("")
     return lines
@@ -306,3 +352,15 @@ def build_item_summary(item: dict[str, Any]) -> str:
         or "信息不足"
     )
     return str(summary).strip() or "信息不足"
+
+
+def get_source_type_style(source_type: str) -> dict[str, str]:
+    return SOURCE_TYPE_SECTION_STYLE.get(
+        source_type,
+        {
+            "summary_label": "摘要",
+            "why_label": "为什么值得看",
+            "audience_label": "适合读者",
+            "roundup_title": "**资讯链接速览：**",
+        },
+    )

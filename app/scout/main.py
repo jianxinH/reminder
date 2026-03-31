@@ -113,10 +113,9 @@ def partition_items(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], 
         if item not in top_candidates and item not in regular_candidates and item.get("is_ai_related", True)
     ]
 
-    if len(top_candidates) < 3:
-        needed = 3 - len(top_candidates)
-        top_candidates.extend(regular_candidates[:needed])
-        regular_candidates = regular_candidates[needed:]
+    balanced_top_items, used_urls = select_balanced_top_items(top_candidates, regular_candidates, limit=3)
+    top_candidates = balanced_top_items
+    regular_candidates = [item for item in regular_candidates if item.get("url", "") not in used_urls]
 
     regular_candidates, low_priority_candidates = ensure_category_presence(
         regular_candidates,
@@ -147,6 +146,59 @@ def partition_items(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], 
         section_items.setdefault(category, []).append(item)
 
     return top_candidates[:3], section_items, low_priority_candidates
+
+
+def select_balanced_top_items(
+    top_candidates: list[dict[str, Any]],
+    regular_candidates: list[dict[str, Any]],
+    *,
+    limit: int,
+) -> tuple[list[dict[str, Any]], set[str]]:
+    pool = list(top_candidates) + list(regular_candidates)
+    if not pool:
+        return [], set()
+
+    preferred_categories = ("产品", "应用", "开源", "研究")
+    selected: list[dict[str, Any]] = []
+    used_urls: set[str] = set()
+    used_sources: set[str] = set()
+
+    def try_add(candidate: dict[str, Any], *, avoid_same_source: bool) -> bool:
+        url = str(candidate.get("url", "")).strip()
+        source = str(candidate.get("source", "")).strip()
+        if not url or url in used_urls:
+            return False
+        if avoid_same_source and source and source in used_sources:
+            return False
+        selected.append(candidate)
+        used_urls.add(url)
+        if source:
+            used_sources.add(source)
+        return True
+
+    for category in preferred_categories:
+        if len(selected) >= limit:
+            break
+        for candidate in pool:
+            candidate_category = candidate.get("category_suggestion") or candidate.get("category") or "其他"
+            if candidate_category != category:
+                continue
+            if try_add(candidate, avoid_same_source=True):
+                break
+
+    if len(selected) < limit:
+        for candidate in pool:
+            if len(selected) >= limit:
+                break
+            try_add(candidate, avoid_same_source=True)
+
+    if len(selected) < limit:
+        for candidate in pool:
+            if len(selected) >= limit:
+                break
+            try_add(candidate, avoid_same_source=False)
+
+    return selected, used_urls
 
 
 def ensure_category_presence(
