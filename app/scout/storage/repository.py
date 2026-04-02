@@ -74,10 +74,11 @@ class ArticleRepository:
                     confidence,
                     tags,
                     related_sources,
+                    generated_by_model,
                     model_name,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     article_id,
@@ -95,6 +96,7 @@ class ArticleRepository:
                     float(summary.get("confidence", 0.0)),
                     json.dumps(summary.get("tags", []), ensure_ascii=False),
                     json.dumps(summary.get("related_sources", []), ensure_ascii=False),
+                    1 if summary.get("generated_by_model", False) else 0,
                     summary.get("model_name", ""),
                     now,
                     now,
@@ -163,6 +165,7 @@ class ArticleRepository:
                     s.confidence,
                     s.tags,
                     s.related_sources,
+                    s.generated_by_model,
                     s.model_name
                 FROM articles a
                 LEFT JOIN article_summaries s ON s.article_id = a.id
@@ -208,12 +211,13 @@ class ArticleRepository:
                 s.my_commentary,
                 s.short_summary,
                 s.include_in_report,
-                s.importance_score,
-                s.confidence,
-                s.tags,
-                s.related_sources,
-                s.model_name
-            FROM articles a
+                    s.importance_score,
+                    s.confidence,
+                    s.tags,
+                    s.related_sources,
+                    s.generated_by_model,
+                    s.model_name
+                FROM articles a
             LEFT JOIN article_summaries s ON s.article_id = a.id
             WHERE a.url IN ({placeholders})
             ORDER BY COALESCE(s.importance_score, 50) DESC, COALESCE(NULLIF(a.published_at, ''), a.created_at) DESC, a.id DESC
@@ -258,6 +262,7 @@ class ArticleRepository:
             "confidence": row["confidence"] if row["confidence"] is not None else 0.0,
             "tags": parse_json_list(row["tags"]),
             "related_sources": parse_json_list(row["related_sources"]),
+            "generated_by_model": bool(row["generated_by_model"]) if row["generated_by_model"] is not None else False,
             "model_name": row["model_name"] or "",
         }
 

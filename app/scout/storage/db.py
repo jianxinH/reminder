@@ -70,6 +70,7 @@ def init_db(database_path: str) -> None:
                 confidence REAL DEFAULT 0.0,
                 tags TEXT,
                 related_sources TEXT,
+                generated_by_model INTEGER NOT NULL DEFAULT 0,
                 model_name TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -85,6 +86,7 @@ def init_db(database_path: str) -> None:
         ensure_column(cursor, "article_summaries", "my_commentary", "TEXT")
         ensure_column(cursor, "article_summaries", "short_summary", "TEXT")
         ensure_column(cursor, "article_summaries", "related_sources", "TEXT")
+        ensure_column(cursor, "article_summaries", "generated_by_model", "INTEGER NOT NULL DEFAULT 0")
         ensure_column(cursor, "articles", "source_type", "TEXT")
         ensure_column(cursor, "articles", "source_language", "TEXT")
         ensure_column(cursor, "articles", "category_hint", "TEXT")

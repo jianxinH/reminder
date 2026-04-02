@@ -136,16 +136,17 @@ class NewsSummarizer:
             "category_suggestion": detected_category,
             "zh_title": item.get("title", "")[:120],
             "one_line_takeaway": takeaway or "信息不足",
-            "what_happened": summary[:180] if summary else "信息不足",
-            "why_it_matters": local_reason(item, is_ai_related, reason),
-            "who_should_care": local_audience(detected_category),
-            "my_commentary": local_commentary(detected_category, importance, reason),
+            "what_happened": "",
+            "why_it_matters": "",
+            "who_should_care": "",
+            "my_commentary": "",
             "include_in_report": include_in_report,
             "importance_score": importance,
             "confidence": 0.35 if is_ai_related else 0.2,
             "tags": infer_tags(item, detected_category),
             "short_summary": takeaway or "信息不足",
-            "model_name": self.model if self.api_key else "",
+            "model_name": "",
+            "generated_by_model": False,
             "related_sources": item.get("related_sources", []),
         }
 
@@ -199,6 +200,7 @@ class NewsSummarizer:
             "tags": normalize_tags(parsed.get("tags"), item, category),
             "short_summary": clean_sentence(parsed.get("one_line_takeaway") or fallback["one_line_takeaway"])[:120],
             "model_name": self.model,
+            "generated_by_model": True,
             "related_sources": item.get("related_sources", []),
         }
 
@@ -383,40 +385,6 @@ def source_language_bonus(source_language: str) -> int:
     if language == "en":
         return 1
     return 0
-
-
-def local_reason(item: dict[str, Any], is_ai_related: bool, reason: str) -> str:
-    if not is_ai_related:
-        return "与 AI 主题关联较弱，暂不建议作为重点内容。"
-    if reason and reason != "信息不足":
-        return reason
-    summary = clean_sentence(item.get("summary", ""))
-    if summary:
-        return f"这条信息与 AI 进展直接相关，且原文提供了基础信息：{summary[:120]}"
-    return "信息不足，但从标题看与 AI 进展直接相关，建议保留基础关注。"
-
-
-def local_audience(category: str) -> str:
-    mapping = {
-        "产品": "关注 AI 产品路线的团队、产品经理和业务负责人",
-        "应用": "想把 AI 用到业务流程中的团队、运营和解决方案负责人",
-        "开源": "开发者、平台工程师和关注开源生态的团队",
-        "融资/公司动态": "关注行业格局、商业化与竞争态势的管理者和投资人",
-        "研究": "研究人员、模型工程师和技术决策者",
-        "新闻": "希望快速了解 AI 行业动态的从业者",
-        "其他": "对 AI 行业趋势保持跟踪的读者",
-    }
-    return mapping.get(category, mapping["其他"])
-
-
-def local_commentary(category: str, importance: int, reason: str) -> str:
-    if importance >= 80:
-        return f"高优先级{category}动态，适合放进今天的重点区。"
-    if importance >= 60:
-        return f"信息密度尚可，适合放入{category}栏目。"
-    if reason and reason != "信息不足":
-        return clean_sentence(reason)[:80]
-    return "信息量一般，但仍可作为今日动态留档。"
 
 
 def clean_sentence(value: Any) -> str:

@@ -95,9 +95,11 @@ def build_daily_report(
     ) or "官方发布、研究趋势、媒体报道"
 
     lines = [
-        f"# AI Daily Scout 日报 | {report_date}",
+        f"# AI Daily Scout | {report_date}",
         "",
-        "## 今日概览",
+        "> 每天一份 AI 资讯整理，帮你快速看完当天值得关注的产品、开源、研究与行业动态。",
+        "",
+        "## 今天先看什么",
         f"- 今日共抓取 **{stats.get('fetched_count', 0)}** 条资讯，去重后 **{stats.get('deduped_count', 0)}** 条，最终收录 **{stats.get('included_count', 0)}** 条。",
         f"- 资讯主要集中在：{top_categories}",
         f"- 今日高频关键词：{top_tags}",
@@ -107,7 +109,7 @@ def build_daily_report(
     ]
 
     if top_items:
-        lines.extend(["## 今日重点 Top 3", ""])
+        lines.extend(["## 今天最值得看的 3 件事", ""])
         for index, item in enumerate(top_items[:3], start=1):
             lines.extend(render_featured_item(index, item, all_items))
 
@@ -131,11 +133,11 @@ def build_daily_report(
             lines.extend(render_quick_links_block(items, low_priority_items, rendered_urls=section_rendered_urls))
 
     if low_priority_items:
-        lines.extend(["## 低优先级简讯", ""])
+        lines.extend(["## 还可以顺手看一眼", ""])
         for item in low_priority_items[:12]:
             lines.append(
                 f"- **{item.get('zh_title') or item.get('title')}**："
-                f"{item.get('one_line_takeaway') or item.get('short_summary')} "
+                f"{build_item_summary(item)} "
                 f"[原文]({item.get('url') or ''})"
             )
         lines.append("")
@@ -146,14 +148,12 @@ def build_daily_report(
 def render_featured_item(index: int, item: dict[str, Any], all_items: list[dict[str, Any]]) -> list[str]:
     lines = [
         f"### {index}. {item.get('zh_title') or item.get('title')}",
-        f"- **摘要：** {build_item_summary(item)}",
-        f"- **为什么重要：** {item.get('why_it_matters') or '信息不足'}",
-        f"- **谁应该关注：** {item.get('who_should_care') or '信息不足'}",
-        f"- **简评：** {item.get('my_commentary') or '信息不足'}",
-        f"- **来源：** {item.get('source') or '未知来源'}",
-        f"- **来源类型：** `{item.get('source_type') or 'unknown'}`",
-        f"- **原文链接：** [原文]({item.get('url') or ''})",
+        "",
+        f"{build_item_summary(item)}",
+        "",
+        f"**来源**：{item.get('source') or '未知来源'} | **类型**：`{item.get('source_type') or 'unknown'}` | [查看原文]({item.get('url') or ''})",
     ]
+    lines.extend(render_model_editorial_lines(item, style=None))
     lines.extend(render_extended_links(item, label="延伸阅读", fallback_items=all_items, minimum_links=2, maximum_links=4))
     lines.extend(["", "---", ""])
     return lines
@@ -163,12 +163,12 @@ def render_section_item(item: dict[str, Any], all_items: list[dict[str, Any]]) -
     style = get_source_type_style(item.get("source_type", ""))
     lines = [
         f"#### {item.get('zh_title') or item.get('title')}",
-        f"- **{style['summary_label']}：** {build_item_summary(item)}",
-        f"- **{style['why_label']}：** {item.get('why_it_matters') or '信息不足'}",
-        f"- **{style['audience_label']}：** {item.get('who_should_care') or '信息不足'}",
-        f"- **来源：** {item.get('source') or '未知来源'}",
-        f"- **原文链接：** [原文]({item.get('url') or ''})",
+        "",
+        f"**{style['summary_label']}**：{build_item_summary(item)}",
+        "",
+        f"**来源**：{item.get('source') or '未知来源'} | [查看原文]({item.get('url') or ''})",
     ]
+    lines.extend(render_model_editorial_lines(item, style=style))
     lines.extend(render_extended_links(item, label="更多链接", fallback_items=all_items, minimum_links=1, maximum_links=3))
     lines.extend(["", "---", ""])
     return lines
@@ -186,7 +186,7 @@ def render_extended_links(
     if len(links) < minimum_links:
         return []
     link_text = "；".join(f"[{entry['label']}]({entry['url']})" for entry in links[:maximum_links])
-    return [f"- **{label}：** {link_text}"]
+    return ["", f"**{label}**：{link_text}"]
 
 
 def render_link_roundup(items: list[dict[str, Any]], *, rendered_urls: set[str], source_type: str) -> list[str]:
@@ -328,9 +328,10 @@ def build_link_suggestions(
 
 
 def build_item_summary(item: dict[str, Any]) -> str:
+    if item.get("generated_by_model") and item.get("what_happened"):
+        return str(item.get("what_happened")).strip() or "信息不足"
     summary = (
-        item.get("what_happened")
-        or item.get("short_summary")
+        item.get("short_summary")
         or item.get("summary")
         or item.get("one_line_takeaway")
         or "信息不足"
@@ -348,3 +349,26 @@ def get_source_type_style(source_type: str) -> dict[str, str]:
             "roundup_title": "**资讯链接速览：**",
         },
     )
+
+
+def render_model_editorial_lines(item: dict[str, Any], style: dict[str, str] | None) -> list[str]:
+    if not item.get("generated_by_model"):
+        return []
+
+    why_label = "为什么重要" if style is None else style["why_label"]
+    audience_label = "谁应该关注" if style is None else style["audience_label"]
+    commentary_label = "编辑短评" if style is None else "编辑判断"
+
+    lines: list[str] = []
+    if has_meaningful_text(item.get("why_it_matters")):
+        lines.extend([f"**{why_label}**：{item.get('why_it_matters')}", ""])
+    if has_meaningful_text(item.get("who_should_care")):
+        lines.extend([f"**{audience_label}**：{item.get('who_should_care')}", ""])
+    if has_meaningful_text(item.get("my_commentary")):
+        lines.extend([f"**{commentary_label}**：{item.get('my_commentary')}", ""])
+    return lines
+
+
+def has_meaningful_text(value: Any) -> bool:
+    text = str(value or "").strip()
+    return bool(text and text != "信息不足")
