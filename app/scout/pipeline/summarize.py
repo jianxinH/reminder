@@ -10,7 +10,7 @@ from app.scout.utils.logger import get_logger
 logger = get_logger(__name__)
 
 SYSTEM_PROMPT = """
-你是一名中文 AI 科技日报编辑，不只是做摘要，还要完成筛选、归类、提炼重点和编辑式表达。
+你是一名中文 AI 科技日报编辑，写作风格接近科技公众号主编，而不是研究报告撰写人。你的任务不只是做摘要，还要完成筛选、归类、提炼重点和编辑式表达。
 
 你的目标不是机械复述原文，而是帮助读者快速判断：
 1. 这件事发生了什么
@@ -19,7 +19,11 @@ SYSTEM_PROMPT = """
 4. 它在今天的 AI 资讯里重要性如何
 
 写作要求：
-- 中文表达自然、简洁、信息密度高
+- 中文表达自然、清楚、像公众号编辑写给读者看的资讯导语
+- “发生了什么”必须写成适合日报正文展示的完整中文摘要，优先使用 2~4 句完整句子，避免只写半句、短语或标题改写
+- 优先说人话，少用“该动态”“该事项”“相关方向”等公文化表述
+- 可以有编辑判断，但不要端着，不要写成行业报告或咨询文风
+- 句子之间要有信息推进感，不要把同一句意思换个说法重复两遍
 - 不要空话，不要官话，不要重复标题
 - 不要编造原文没有的信息
 - 信息不足时明确写“信息不足”
@@ -55,10 +59,10 @@ USER_PROMPT_TEMPLATE = """
    - 其他
 3. 输出一个适合中文日报展示的标题
 4. 给出一句话结论
-5. 说明“发生了什么”
-6. 说明“为什么重要”
-7. 说明“谁应该关注”
-8. 给出一段不超过80字的编辑短评
+5. 说明“发生了什么”，写成适合公众号日报正文的完整摘要
+6. 说明“为什么重要”，要说清它对行业、产品、开发者或市场的意义
+7. 说明“谁应该关注”，尽量写具体读者，而不是泛泛地说“从业者”
+8. 给出一段不超过80字的编辑短评，语气像公众号编辑的点题，不要像研究结论
 9. 判断是否建议收录到日报
 10. 给出 0~100 的重要性分数
 
@@ -68,7 +72,7 @@ USER_PROMPT_TEMPLATE = """
   "category_suggestion": "产品",
   "zh_title": "这里填写中文标题",
   "one_line_takeaway": "这里填写一句话结论",
-  "what_happened": "这里填写发生了什么",
+  "what_happened": "这里填写一段适合日报正文展示的完整摘要，尽量 2~4 句，句子完整，不要只写半句",
   "why_it_matters": "这里填写为什么重要",
   "who_should_care": "这里填写谁应该关注",
   "my_commentary": "这里填写编辑短评",
@@ -83,6 +87,9 @@ USER_PROMPT_TEMPLATE = """
 - 不要加代码块
 - 不要加解释
 - 不要照抄标题作为摘要
+- “what_happened”请写成完整摘要段，不要只写一个短句
+- “why_it_matters”不要只写“与 AI 相关所以重要”，要给出更具体的理由
+- “my_commentary”要像编辑一句话点题，不要像行业报告结论
 - 如果内容重复、信息少或不够重要，可以 include_in_report 设为 false
 """.strip()
 
@@ -190,7 +197,7 @@ class NewsSummarizer:
             "category_suggestion": category,
             "zh_title": clean_sentence(parsed.get("zh_title") or fallback["zh_title"])[:120] or fallback["zh_title"],
             "one_line_takeaway": clean_sentence(parsed.get("one_line_takeaway") or fallback["one_line_takeaway"])[:120],
-            "what_happened": clean_paragraph(parsed.get("what_happened") or fallback["what_happened"], 220),
+            "what_happened": clean_paragraph(parsed.get("what_happened") or fallback["what_happened"], 420),
             "why_it_matters": clean_paragraph(parsed.get("why_it_matters") or fallback["why_it_matters"], 180),
             "who_should_care": clean_sentence(parsed.get("who_should_care") or fallback["who_should_care"])[:120],
             "my_commentary": clean_sentence(parsed.get("my_commentary") or fallback["my_commentary"])[:80],
@@ -395,4 +402,11 @@ def clean_paragraph(value: Any, limit: int) -> str:
     text = clean_sentence(value)
     if not text:
         return "信息不足"
-    return text[:limit]
+    if len(text) <= limit:
+        return text
+    clipped = text[:limit]
+    for separator in ("。", "！", "？", ".", ";", "；"):
+        last_index = clipped.rfind(separator)
+        if last_index >= int(limit * 0.6):
+            return clipped[: last_index + 1].strip()
+    return clipped.rstrip(" ,，、;；:：") + "…"
