@@ -40,6 +40,13 @@ CORE_SOURCE_TYPES = {
 HIGH_TRUST_SOURCE_TYPES = {"official_global", "official_china", "open_source", "research", "official"}
 
 
+def has_complete_model_summary(item: dict[str, Any]) -> bool:
+    if not item.get("generated_by_model"):
+        return False
+    summary = str(item.get("what_happened") or "").strip()
+    return len(summary) >= 60
+
+
 def ensure_directories() -> None:
     Path("data").mkdir(parents=True, exist_ok=True)
     Path("reports").mkdir(parents=True, exist_ok=True)
@@ -281,6 +288,28 @@ def fallback_with_current_cards(
     return eligible_items + chosen, len(chosen)
 
 
+def refresh_editorial_cards(
+    repository: ArticleRepository,
+    summarizer: NewsSummarizer,
+    items: list[dict[str, Any]],
+    refresh_limit: int,
+    timezone_name: str,
+) -> tuple[list[dict[str, Any]], int]:
+    refreshed = 0
+    refreshed_items: list[dict[str, Any]] = []
+    for item in sort_items_by_priority(items, timezone_name):
+        current_item = item
+        if refreshed < refresh_limit and not has_complete_model_summary(item):
+            article_id = repository.get_article_id_by_url(item.get("url", ""))
+            if article_id:
+                updated_card = {**item, **summarizer.summarize_item(item)}
+                repository.insert_article_summary(article_id, updated_card)
+                current_item = updated_card
+                refreshed += 1
+        refreshed_items.append(current_item)
+    return refreshed_items, refreshed
+
+
 def run_pipeline() -> dict[str, Any]:
     settings = get_settings()
     ensure_directories()
@@ -369,6 +398,16 @@ def run_pipeline() -> dict[str, Any]:
             report_top_n=settings.report_top_n,
         )
 
+    refreshed_summary_count = 0
+    if eligible_items:
+        eligible_items, refreshed_summary_count = refresh_editorial_cards(
+            repository=repository,
+            summarizer=summarizer,
+            items=eligible_items,
+            refresh_limit=max(settings.report_top_n * 2, 8),
+            timezone_name=settings.report_timezone,
+        )
+
     top_items, section_items, low_priority_items = partition_items(eligible_items)
     included_items = top_items + [item for items in section_items.values() for item in items] + low_priority_items
 
@@ -383,6 +422,7 @@ def run_pipeline() -> dict[str, Any]:
         "included_count": len(included_items),
         "db_supplement_count": db_supplement_count,
         "current_card_fallback_count": current_card_fallback_count,
+        "refreshed_summary_count": refreshed_summary_count,
     }
 
     editorial_summary = daily_editor.build_daily_summary(included_items, stats)

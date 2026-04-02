@@ -19,6 +19,17 @@ class ArticleRepository:
         finally:
             conn.close()
 
+    def get_article_id_by_url(self, url: str) -> int | None:
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT id FROM articles WHERE url = ? ORDER BY id DESC LIMIT 1",
+                (url,),
+            ).fetchone()
+            return int(row["id"]) if row else None
+        finally:
+            conn.close()
+
     def insert_article(self, item: dict[str, Any]) -> int:
         now = timestamp()
         conn = self._connect()
@@ -252,7 +263,7 @@ class ArticleRepository:
             "zh_title": row["zh_title"] or row["title"],
             "category_suggestion": row["category_suggestion"] or row["raw_category"] or "其他",
             "one_line_takeaway": row["one_line_takeaway"] or row["short_summary"] or row["summary"] or row["title"],
-            "what_happened": row["what_happened"] or row["summary"] or "信息不足",
+            "what_happened": row["what_happened"] or "",
             "why_it_matters": row["why_it_matters"] or "来自数据库的近期已存内容。",
             "who_should_care": row["who_should_care"] or "关注 AI 行业变化的读者",
             "my_commentary": row["my_commentary"] or "适合作为日报补充信息留档。",

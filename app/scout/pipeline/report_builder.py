@@ -328,11 +328,12 @@ def build_link_suggestions(
 
 
 def build_item_summary(item: dict[str, Any]) -> str:
-    if item.get("generated_by_model") and item.get("what_happened"):
-        return str(item.get("what_happened")).strip() or "信息不足"
+    model_summary = str(item.get("what_happened") or "").strip()
+    if has_meaningful_text(model_summary):
+        return model_summary
     summary = (
-        item.get("short_summary")
-        or item.get("summary")
+        item.get("summary")
+        or item.get("short_summary")
         or item.get("one_line_takeaway")
         or "信息不足"
     )
