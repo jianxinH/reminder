@@ -1,0 +1,112 @@
+name: AI Daily Scout
+
+on:
+  push:
+    branches:
+      - codex/ai-daily-scout
+  workflow_dispatch:
+  schedule:
+    - cron: "0 2 * * *"
+
+jobs:
+  build-report:
+    runs-on: [self-hosted, Linux, X64]
+    permissions:
+      contents: write
+    env:
+      SCOUT_DATABASE_PATH: /home/githubrunner/.local/share/ai-daily-scout/scout.db
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: ${{ github.ref_name }}
+
+      - name: Check system Python
+        run: |
+          python3 --version
+          which python3
+
+      - name: Prepare virtual environment
+        run: |
+          VENV_PATH="$HOME/.venvs/ai-daily-scout"
+          mkdir -p "$HOME/.venvs"
+          if [ ! -x "$VENV_PATH/bin/python" ]; then
+            python3 -m venv "$VENV_PATH"
+          fi
+          "$VENV_PATH/bin/python" -m pip install --upgrade pip
+          "$VENV_PATH/bin/pip" install -r requirements.txt
+
+      - name: Run AI Daily Scout
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-5.4' }}
+          SCOUT_DATABASE_PATH: ${{ env.SCOUT_DATABASE_PATH }}
+          SCOUT_SOURCES_FILE: app/scout/config/sources.yaml
+          REPORT_TIMEZONE: ${{ vars.REPORT_TIMEZONE || 'Asia/Shanghai' }}
+          REPORT_LANGUAGE: ${{ vars.REPORT_LANGUAGE || 'zh-CN' }}
+          REPORT_TOP_N: ${{ vars.REPORT_TOP_N || '20' }}
+          SCOUT_RECENT_DAYS: ${{ vars.SCOUT_RECENT_DAYS || '3' }}
+          SCOUT_MAX_SUMMARY_ITEMS: ${{ vars.SCOUT_MAX_SUMMARY_ITEMS || '30' }}
+          SCOUT_LOG_LEVEL: INFO
+          HTTP_PROXY: http://127.0.0.1:7890
+          HTTPS_PROXY: http://127.0.0.1:7890
+          NO_PROXY: 127.0.0.1,localhost
+        run: |
+          mkdir -p "$(dirname "$SCOUT_DATABASE_PATH")"
+          "$HOME/.venvs/ai-daily-scout/bin/python" run_daily.py
+
+      - name: Resolve report path
+        id: report
+        run: |
+          report_path=$(ls reports/*.md | sort | tail -n 1)
+          if [ -z "$report_path" ]; then
+            echo "No report generated"
+            exit 1
+          fi
+          echo "report_path=$report_path" >> "$GITHUB_OUTPUT"
+
+      - name: Commit daily report back to repository
+        env:
+          REPORT_PATH: ${{ steps.report.outputs.report_path }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f "$REPORT_PATH"
+          if git diff --cached --quiet; then
+            echo "No report changes to commit"
+          else
+            git commit -m "Add AI Daily Scout report"
+            git push
+          fi
+
+      - name: Send report to WeCom
+        env:
+          SCOUT_REPORT_PATH: ${{ steps.report.outputs.report_path }}
+          SCOUT_REPORT_URL: https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/${{ steps.report.outputs.report_path }}
+          WECOM_BOT_WEBHOOK: ${{ secrets.WECOM_BOT_WEBHOOK }}
+          WECOM_CORP_ID: ${{ secrets.WECOM_CORP_ID }}
+          WECOM_AGENT_ID: ${{ secrets.WECOM_AGENT_ID }}
+          WECOM_SECRET: ${{ secrets.WECOM_SECRET }}
+          WECOM_TOUSER: ${{ secrets.WECOM_TOUSER }}
+          WECOM_BASE_URL: ${{ vars.WECOM_BASE_URL || 'https://qyapi.weixin.qq.com' }}
+          HTTP_PROXY: http://127.0.0.1:7890
+          HTTPS_PROXY: http://127.0.0.1:7890
+          NO_PROXY: 127.0.0.1,localhost
+        run: |
+          if [ -z "$WECOM_BOT_WEBHOOK" ] && { [ -z "$WECOM_CORP_ID" ] || [ -z "$WECOM_AGENT_ID" ] || [ -z "$WECOM_SECRET" ] || [ -z "$WECOM_TOUSER" ]; }; then
+            echo "WeCom webhook or app secrets are incomplete, skip sending."
+            exit 0
+          fi
+          export PYTHONPATH="${GITHUB_WORKSPACE}"
+          "$HOME/.venvs/ai-daily-scout/bin/python" scripts/send_scout_report_to_wecom.py
+
+      - name: Upload report artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-daily-scout-report
+          path: |
+            reports/
+            ${{ env.SCOUT_DATABASE_PATH }}
+          if-no-files-found: error
