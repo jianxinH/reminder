@@ -10,7 +10,7 @@ from app.scout.utils.logger import get_logger
 logger = get_logger(__name__)
 
 SYSTEM_PROMPT = """
-你是一名中文 AI 科技日报编辑，不只是做摘要，还要完成筛选、归类、提炼重点和编辑式表达。
+你是一名中文 AI 科技日报编辑，写作风格接近科技公众号主编，而不是研究报告撰写人。你的任务不只是做摘要，还要完成筛选、归类、提炼重点和编辑式表达。
 
 你的目标不是机械复述原文，而是帮助读者快速判断：
 1. 这件事发生了什么
@@ -19,7 +19,11 @@ SYSTEM_PROMPT = """
 4. 它在今天的 AI 资讯里重要性如何
 
 写作要求：
-- 中文表达自然、简洁、信息密度高
+- 中文表达自然、清楚、像公众号编辑写给读者看的资讯导语
+- “发生了什么”必须写成适合日报正文展示的完整中文摘要，优先使用 2~4 句完整句子，避免只写半句、短语或标题改写
+- 优先说人话，少用“该动态”“该事项”“相关方向”等公文化表述
+- 可以有编辑判断，但不要端着，不要写成行业报告或咨询文风
+- 句子之间要有信息推进感，不要把同一句意思换个说法重复两遍
 - 不要空话，不要官话，不要重复标题
 - 不要编造原文没有的信息
 - 信息不足时明确写“信息不足”
@@ -55,10 +59,10 @@ USER_PROMPT_TEMPLATE = """
    - 其他
 3. 输出一个适合中文日报展示的标题
 4. 给出一句话结论
-5. 说明“发生了什么”
-6. 说明“为什么重要”
-7. 说明“谁应该关注”
-8. 给出一段不超过80字的编辑短评
+5. 说明“发生了什么”，写成适合公众号日报正文的完整摘要
+6. 说明“为什么重要”，要说清它对行业、产品、开发者或市场的意义
+7. 说明“谁应该关注”，尽量写具体读者，而不是泛泛地说“从业者”
+8. 给出一段不超过80字的编辑短评，语气像公众号编辑的点题，不要像研究结论
 9. 判断是否建议收录到日报
 10. 给出 0~100 的重要性分数
 
@@ -68,7 +72,7 @@ USER_PROMPT_TEMPLATE = """
   "category_suggestion": "产品",
   "zh_title": "这里填写中文标题",
   "one_line_takeaway": "这里填写一句话结论",
-  "what_happened": "这里填写发生了什么",
+  "what_happened": "这里填写一段适合日报正文展示的完整摘要，尽量 2~4 句，句子完整，不要只写半句",
   "why_it_matters": "这里填写为什么重要",
   "who_should_care": "这里填写谁应该关注",
   "my_commentary": "这里填写编辑短评",
@@ -83,6 +87,9 @@ USER_PROMPT_TEMPLATE = """
 - 不要加代码块
 - 不要加解释
 - 不要照抄标题作为摘要
+- “what_happened”请写成完整摘要段，不要只写一个短句
+- “why_it_matters”不要只写“与 AI 相关所以重要”，要给出更具体的理由
+- “my_commentary”要像编辑一句话点题，不要像行业报告结论
 - 如果内容重复、信息少或不够重要，可以 include_in_report 设为 false
 """.strip()
 
@@ -136,16 +143,17 @@ class NewsSummarizer:
             "category_suggestion": detected_category,
             "zh_title": item.get("title", "")[:120],
             "one_line_takeaway": takeaway or "信息不足",
-            "what_happened": summary[:180] if summary else "信息不足",
-            "why_it_matters": local_reason(item, is_ai_related, reason),
-            "who_should_care": local_audience(detected_category),
-            "my_commentary": local_commentary(detected_category, importance, reason),
+            "what_happened": "",
+            "why_it_matters": "",
+            "who_should_care": "",
+            "my_commentary": "",
             "include_in_report": include_in_report,
             "importance_score": importance,
             "confidence": 0.35 if is_ai_related else 0.2,
             "tags": infer_tags(item, detected_category),
             "short_summary": takeaway or "信息不足",
-            "model_name": self.model if self.api_key else "",
+            "model_name": "",
+            "generated_by_model": False,
             "related_sources": item.get("related_sources", []),
         }
 
@@ -189,7 +197,7 @@ class NewsSummarizer:
             "category_suggestion": category,
             "zh_title": clean_sentence(parsed.get("zh_title") or fallback["zh_title"])[:120] or fallback["zh_title"],
             "one_line_takeaway": clean_sentence(parsed.get("one_line_takeaway") or fallback["one_line_takeaway"])[:120],
-            "what_happened": clean_paragraph(parsed.get("what_happened") or fallback["what_happened"], 220),
+            "what_happened": clean_paragraph(parsed.get("what_happened") or fallback["what_happened"], 420),
             "why_it_matters": clean_paragraph(parsed.get("why_it_matters") or fallback["why_it_matters"], 180),
             "who_should_care": clean_sentence(parsed.get("who_should_care") or fallback["who_should_care"])[:120],
             "my_commentary": clean_sentence(parsed.get("my_commentary") or fallback["my_commentary"])[:80],
@@ -199,6 +207,7 @@ class NewsSummarizer:
             "tags": normalize_tags(parsed.get("tags"), item, category),
             "short_summary": clean_sentence(parsed.get("one_line_takeaway") or fallback["one_line_takeaway"])[:120],
             "model_name": self.model,
+            "generated_by_model": True,
             "related_sources": item.get("related_sources", []),
         }
 
@@ -385,40 +394,6 @@ def source_language_bonus(source_language: str) -> int:
     return 0
 
 
-def local_reason(item: dict[str, Any], is_ai_related: bool, reason: str) -> str:
-    if not is_ai_related:
-        return "与 AI 主题关联较弱，暂不建议作为重点内容。"
-    if reason and reason != "信息不足":
-        return reason
-    summary = clean_sentence(item.get("summary", ""))
-    if summary:
-        return f"这条信息与 AI 进展直接相关，且原文提供了基础信息：{summary[:120]}"
-    return "信息不足，但从标题看与 AI 进展直接相关，建议保留基础关注。"
-
-
-def local_audience(category: str) -> str:
-    mapping = {
-        "产品": "关注 AI 产品路线的团队、产品经理和业务负责人",
-        "应用": "想把 AI 用到业务流程中的团队、运营和解决方案负责人",
-        "开源": "开发者、平台工程师和关注开源生态的团队",
-        "融资/公司动态": "关注行业格局、商业化与竞争态势的管理者和投资人",
-        "研究": "研究人员、模型工程师和技术决策者",
-        "新闻": "希望快速了解 AI 行业动态的从业者",
-        "其他": "对 AI 行业趋势保持跟踪的读者",
-    }
-    return mapping.get(category, mapping["其他"])
-
-
-def local_commentary(category: str, importance: int, reason: str) -> str:
-    if importance >= 80:
-        return f"高优先级{category}动态，适合放进今天的重点区。"
-    if importance >= 60:
-        return f"信息密度尚可，适合放入{category}栏目。"
-    if reason and reason != "信息不足":
-        return clean_sentence(reason)[:80]
-    return "信息量一般，但仍可作为今日动态留档。"
-
-
 def clean_sentence(value: Any) -> str:
     return " ".join(str(value or "").replace("\n", " ").split()).strip()
 
@@ -427,4 +402,11 @@ def clean_paragraph(value: Any, limit: int) -> str:
     text = clean_sentence(value)
     if not text:
         return "信息不足"
-    return text[:limit]
+    if len(text) <= limit:
+        return text
+    clipped = text[:limit]
+    for separator in ("。", "！", "？", ".", ";", "；"):
+        last_index = clipped.rfind(separator)
+        if last_index >= int(limit * 0.6):
+            return clipped[: last_index + 1].strip()
+    return clipped.rstrip(" ,，、;；:：") + "…"

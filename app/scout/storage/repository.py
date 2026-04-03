@@ -19,6 +19,17 @@ class ArticleRepository:
         finally:
             conn.close()
 
+    def get_article_id_by_url(self, url: str) -> int | None:
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT id FROM articles WHERE url = ? ORDER BY id DESC LIMIT 1",
+                (url,),
+            ).fetchone()
+            return int(row["id"]) if row else None
+        finally:
+            conn.close()
+
     def insert_article(self, item: dict[str, Any]) -> int:
         now = timestamp()
         conn = self._connect()
@@ -74,10 +85,11 @@ class ArticleRepository:
                     confidence,
                     tags,
                     related_sources,
+                    generated_by_model,
                     model_name,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     article_id,
@@ -95,6 +107,7 @@ class ArticleRepository:
                     float(summary.get("confidence", 0.0)),
                     json.dumps(summary.get("tags", []), ensure_ascii=False),
                     json.dumps(summary.get("related_sources", []), ensure_ascii=False),
+                    1 if summary.get("generated_by_model", False) else 0,
                     summary.get("model_name", ""),
                     now,
                     now,
@@ -163,6 +176,7 @@ class ArticleRepository:
                     s.confidence,
                     s.tags,
                     s.related_sources,
+                    s.generated_by_model,
                     s.model_name
                 FROM articles a
                 LEFT JOIN article_summaries s ON s.article_id = a.id
@@ -208,12 +222,13 @@ class ArticleRepository:
                 s.my_commentary,
                 s.short_summary,
                 s.include_in_report,
-                s.importance_score,
-                s.confidence,
-                s.tags,
-                s.related_sources,
-                s.model_name
-            FROM articles a
+                    s.importance_score,
+                    s.confidence,
+                    s.tags,
+                    s.related_sources,
+                    s.generated_by_model,
+                    s.model_name
+                FROM articles a
             LEFT JOIN article_summaries s ON s.article_id = a.id
             WHERE a.url IN ({placeholders})
             ORDER BY COALESCE(s.importance_score, 50) DESC, COALESCE(NULLIF(a.published_at, ''), a.created_at) DESC, a.id DESC
@@ -248,7 +263,7 @@ class ArticleRepository:
             "zh_title": row["zh_title"] or row["title"],
             "category_suggestion": row["category_suggestion"] or row["raw_category"] or "其他",
             "one_line_takeaway": row["one_line_takeaway"] or row["short_summary"] or row["summary"] or row["title"],
-            "what_happened": row["what_happened"] or row["summary"] or "信息不足",
+            "what_happened": row["what_happened"] or "",
             "why_it_matters": row["why_it_matters"] or "来自数据库的近期已存内容。",
             "who_should_care": row["who_should_care"] or "关注 AI 行业变化的读者",
             "my_commentary": row["my_commentary"] or "适合作为日报补充信息留档。",
@@ -258,6 +273,7 @@ class ArticleRepository:
             "confidence": row["confidence"] if row["confidence"] is not None else 0.0,
             "tags": parse_json_list(row["tags"]),
             "related_sources": parse_json_list(row["related_sources"]),
+            "generated_by_model": bool(row["generated_by_model"]) if row["generated_by_model"] is not None else False,
             "model_name": row["model_name"] or "",
         }
 
