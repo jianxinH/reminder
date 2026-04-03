@@ -317,11 +317,16 @@ def run_pipeline() -> dict[str, Any]:
 
     repository = ArticleRepository(settings.database_path)
     summarizer = NewsSummarizer(
-        api_key=settings.openai_api_key,
+        api_key=settings.llm_api_key,
         model=settings.openai_model,
         language=settings.report_language,
+        base_url=settings.llm_base_url,
     )
-    daily_editor = DailyEditor(api_key=settings.openai_api_key, model=settings.openai_model)
+    daily_editor = DailyEditor(
+        api_key=settings.llm_api_key,
+        model=settings.openai_model,
+        base_url=settings.llm_base_url,
+    )
 
     logger.info("开始抓取资讯源...")
     raw_items = fetch_all_rss_items(settings.sources_file)

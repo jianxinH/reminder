@@ -30,9 +30,10 @@ DAILY_EDITOR_PROMPT = """
 
 
 class DailyEditor:
-    def __init__(self, api_key: str, model: str) -> None:
+    def __init__(self, api_key: str, model: str, base_url: str = "https://api.openai.com/v1") -> None:
         self.api_key = api_key.strip()
         self.model = model
+        self.base_url = (base_url or "https://api.openai.com/v1").rstrip("/")
 
     def build_daily_summary(
         self,
@@ -45,7 +46,7 @@ class DailyEditor:
 
         try:
             response = httpx.post(
-                "https://api.openai.com/v1/responses",
+                f"{self.base_url}/responses",
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",

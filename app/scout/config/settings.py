@@ -12,6 +12,9 @@ BASE_DIR = Path(__file__).resolve().parents[3]
 class Settings(BaseSettings):
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     openai_model: str = Field(default="gpt-5.4", alias="OPENAI_MODEL")
+    openai_base_url: str = Field(default="https://api.openai.com/v1", alias="OPENAI_BASE_URL")
+    modelscope_api_key: str = Field(default="", alias="MODELSCOPE_API_KEY")
+    modelscope_base_url: str = Field(default="", alias="MODELSCOPE_BASE_URL")
     database_path: str = Field(default="data/scout.db", alias="SCOUT_DATABASE_PATH")
     sources_file: str = Field(
         default=str(BASE_DIR / "app" / "scout" / "config" / "sources.yaml"),
@@ -30,6 +33,14 @@ class Settings(BaseSettings):
         extra="ignore",
         populate_by_name=True,
     )
+
+    @property
+    def llm_api_key(self) -> str:
+        return (self.openai_api_key or self.modelscope_api_key).strip()
+
+    @property
+    def llm_base_url(self) -> str:
+        return (self.openai_base_url or self.modelscope_base_url or "https://api.openai.com/v1").strip()
 
 
 @lru_cache

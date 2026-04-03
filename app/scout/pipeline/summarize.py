@@ -95,10 +95,11 @@ USER_PROMPT_TEMPLATE = """
 
 
 class NewsSummarizer:
-    def __init__(self, api_key: str, model: str, language: str = "zh-CN") -> None:
+    def __init__(self, api_key: str, model: str, language: str = "zh-CN", base_url: str = "https://api.openai.com/v1") -> None:
         self.api_key = api_key.strip()
         self.model = model
         self.language = language
+        self.base_url = (base_url or "https://api.openai.com/v1").rstrip("/")
 
     def summarize_item(self, item: dict[str, Any]) -> dict[str, Any]:
         fallback = self.fallback_summary(item)
@@ -107,7 +108,7 @@ class NewsSummarizer:
 
         try:
             response = httpx.post(
-                "https://api.openai.com/v1/responses",
+                f"{self.base_url}/responses",
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
