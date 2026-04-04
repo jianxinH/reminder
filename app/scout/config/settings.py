@@ -40,7 +40,13 @@ class Settings(BaseSettings):
 
     @property
     def llm_base_url(self) -> str:
-        return (self.openai_base_url or self.modelscope_base_url or "https://api.openai.com/v1").strip()
+        if self.modelscope_api_key and self.modelscope_base_url:
+            return self.modelscope_base_url.strip()
+        if self.openai_api_key and self.openai_base_url:
+            return self.openai_base_url.strip()
+        if self.modelscope_base_url:
+            return self.modelscope_base_url.strip()
+        return (self.openai_base_url or "https://api.openai.com/v1").strip()
 
 
 @lru_cache
