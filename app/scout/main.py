@@ -55,6 +55,9 @@ TOPIC_PRIORITY_KEYWORDS = {
 }
 
 
+SECTION_ORDER = ["产品与应用", "公司动态", "研究与趋势"]
+
+
 def has_complete_model_summary(item: dict[str, Any]) -> bool:
     if not item.get("generated_by_model"):
         return False
