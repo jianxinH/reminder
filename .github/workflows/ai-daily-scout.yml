@@ -15,6 +15,10 @@ jobs:
       contents: write
     env:
       SCOUT_DATABASE_PATH: /home/githubrunner/.local/share/ai-daily-scout/scout.db
+      HTTP_PROXY: http://127.0.0.1:7890
+      HTTPS_PROXY: http://127.0.0.1:7890
+      ALL_PROXY: socks5://127.0.0.1:7890
+      NO_PROXY: 127.0.0.1,localhost
 
     steps:
       - name: Checkout repository
@@ -50,9 +54,6 @@ jobs:
           SCOUT_RECENT_DAYS: ${{ vars.SCOUT_RECENT_DAYS || '3' }}
           SCOUT_MAX_SUMMARY_ITEMS: ${{ vars.SCOUT_MAX_SUMMARY_ITEMS || '30' }}
           SCOUT_LOG_LEVEL: INFO
-          HTTP_PROXY: http://127.0.0.1:7890
-          HTTPS_PROXY: http://127.0.0.1:7890
-          NO_PROXY: 127.0.0.1,localhost
         run: |
           mkdir -p "$(dirname "$SCOUT_DATABASE_PATH")"
           "$HOME/.venvs/ai-daily-scout/bin/python" run_daily.py
@@ -91,9 +92,6 @@ jobs:
           WECOM_SECRET: ${{ secrets.WECOM_SECRET }}
           WECOM_TOUSER: ${{ secrets.WECOM_TOUSER }}
           WECOM_BASE_URL: ${{ vars.WECOM_BASE_URL || 'https://qyapi.weixin.qq.com' }}
-          HTTP_PROXY: http://127.0.0.1:7890
-          HTTPS_PROXY: http://127.0.0.1:7890
-          NO_PROXY: 127.0.0.1,localhost
         run: |
           if [ -z "$WECOM_BOT_WEBHOOK" ] && { [ -z "$WECOM_CORP_ID" ] || [ -z "$WECOM_AGENT_ID" ] || [ -z "$WECOM_SECRET" ] || [ -z "$WECOM_TOUSER" ]; }; then
             echo "WeCom webhook or app secrets are incomplete, skip sending."
