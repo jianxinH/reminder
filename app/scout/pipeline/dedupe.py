@@ -1,23 +1,29 @@
 from __future__ import annotations
 
-import re
 from datetime import datetime
 from difflib import SequenceMatcher
 from typing import Any
 
 
+SOFT_DEDUPE_THRESHOLD = 0.88
+
+
 def dedupe_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    seen_urls: set[str] = set()
-    seen_hashes: set[str] = set()
+    seen_canonical_urls: set[str] = set()
+    seen_titles: set[tuple[str, str]] = set()
+    seen_source_titles: set[tuple[str, str]] = set()
     unique_items: list[dict[str, Any]] = []
 
     for item in items:
-        url = str(item.get("url", "")).strip()
-        content_hash = str(item.get("content_hash", "")).strip()
+        canonical_url = str(item.get("canonical_url") or item.get("url") or "").strip()
+        normalized_title = str(item.get("normalized_title") or title_signature(item.get("title", ""))).strip()
+        source = str(item.get("source", "")).strip().lower()
 
-        if url and url in seen_urls:
+        if canonical_url and canonical_url in seen_canonical_urls:
             continue
-        if content_hash and content_hash in seen_hashes:
+        if normalized_title and ("*", normalized_title) in seen_titles:
+            continue
+        if source and normalized_title and (source, normalized_title) in seen_source_titles:
             continue
 
         merged = False
@@ -29,59 +35,78 @@ def dedupe_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if merged:
             continue
 
-        if url:
-            seen_urls.add(url)
-        if content_hash:
-            seen_hashes.add(content_hash)
-        unique_items.append({**item, "related_sources": item.get("related_sources", [])})
+        if canonical_url:
+            seen_canonical_urls.add(canonical_url)
+        if normalized_title:
+            seen_titles.add(("*", normalized_title))
+        if source and normalized_title:
+            seen_source_titles.add((source, normalized_title))
+        unique_items.append(
+            {
+                **item,
+                "related_sources": dedupe_related_sources(item.get("related_sources", [])),
+                "related_links": dedupe_related_sources(item.get("related_links", [])),
+            }
+        )
 
     return unique_items
 
 
 def is_same_topic(left: dict[str, Any], right: dict[str, Any]) -> bool:
-    left_title = title_signature(left.get("title", ""))
-    right_title = title_signature(right.get("title", ""))
+    left_title = str(left.get("normalized_title") or title_signature(left.get("title", ""))).strip()
+    right_title = str(right.get("normalized_title") or title_signature(right.get("title", ""))).strip()
     if not left_title or not right_title:
         return False
 
-    similarity = SequenceMatcher(None, left_title, right_title).ratio()
-    if similarity >= 0.92:
+    title_similarity = SequenceMatcher(None, left_title, right_title).ratio()
+    if title_similarity >= 0.94:
+        return True
+
+    left_text = f"{left_title} {title_signature(left.get('summary', ''))}".strip()
+    right_text = f"{right_title} {title_signature(right.get('summary', ''))}".strip()
+    text_similarity = SequenceMatcher(None, left_text, right_text).ratio()
+    if text_similarity >= SOFT_DEDUPE_THRESHOLD and dates_close(left.get("published_at", ""), right.get("published_at", "")):
         return True
 
     shared_tokens = set(left_title.split()) & set(right_title.split())
-    if len(shared_tokens) >= 5 and dates_close(left.get("published_at", ""), right.get("published_at", "")):
-        return True
-    return False
+    return len(shared_tokens) >= 5 and dates_close(left.get("published_at", ""), right.get("published_at", ""))
 
 
 def merge_same_topic(primary: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
-    related_sources = list(primary.get("related_sources", []))
-    related_sources.append(
-        {
-            "source": candidate.get("source", ""),
-            "url": candidate.get("url", ""),
-            "title": candidate.get("title", ""),
-        }
-    )
-
     primary_score = score_merge_candidate(primary)
     candidate_score = score_merge_candidate(candidate)
     winner = primary if primary_score >= candidate_score else candidate
     loser = candidate if winner is primary else primary
+
     merged = {**winner}
     merged["related_sources"] = dedupe_related_sources(
         list(winner.get("related_sources", []))
         + list(loser.get("related_sources", []))
-        + related_sources
+        + [link_entry(loser)]
     )
+    merged["related_links"] = dedupe_related_sources(
+        list(winner.get("related_links", []))
+        + list(loser.get("related_links", []))
+        + [link_entry(loser)]
+    )
+    merged["cluster_id"] = merged.get("cluster_id") or stable_cluster_id(winner)
     return merged
 
 
-def score_merge_candidate(item: dict[str, Any]) -> tuple[int, int]:
-    return (
-        len(str(item.get("summary", ""))),
-        len(str(item.get("title", ""))),
-    )
+def score_merge_candidate(item: dict[str, Any]) -> tuple[int, int, int, int]:
+    authority = {
+        "official_global": 5,
+        "official_china": 5,
+        "research": 4,
+        "open_source": 4,
+        "media_global": 3,
+        "media_china": 2,
+        "product_discovery": 2,
+    }.get(str(item.get("source_type", "")).strip(), 1)
+    summary_len = len(str(item.get("summary", "")))
+    title_len = len(str(item.get("title", "")))
+    has_published_at = 1 if item.get("published_at") else 0
+    return (authority, summary_len, has_published_at, title_len)
 
 
 def dedupe_related_sources(value: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -92,17 +117,33 @@ def dedupe_related_sources(value: list[dict[str, str]]) -> list[dict[str, str]]:
         if not url or url in seen:
             continue
         seen.add(url)
-        result.append(item)
-    return result[:5]
+        result.append(
+            {
+                "source": str(item.get("source", "")).strip(),
+                "url": url,
+                "title": str(item.get("title", "")).strip(),
+            }
+        )
+    return result[:6]
+
+
+def link_entry(item: dict[str, Any]) -> dict[str, str]:
+    return {
+        "source": str(item.get("source", "")).strip(),
+        "url": str(item.get("url", "")).strip(),
+        "title": str(item.get("title", "")).strip(),
+    }
+
+
+def stable_cluster_id(item: dict[str, Any]) -> str:
+    basis = str(item.get("normalized_title") or item.get("canonical_url") or item.get("url") or "").strip()
+    return basis[:64]
 
 
 def title_signature(value: str) -> str:
     text = str(value or "").lower()
-    text = re.sub(r"https?://\S+", " ", text)
-    text = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    stopwords = {"the", "a", "an", "of", "to", "and", "in", "for", "on", "with", "at", "by"}
-    return " ".join(token for token in text.split() if token not in stopwords)
+    filtered = "".join(ch if ch.isalnum() or "\u4e00" <= ch <= "\u9fff" else " " for ch in text)
+    return " ".join(filtered.split())
 
 
 def dates_close(left: str, right: str) -> bool:

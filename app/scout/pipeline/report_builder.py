@@ -6,70 +6,8 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 
-SECTION_ORDER = [
-    ("产品与应用", {"产品", "应用"}),
-    ("模型 / 开源 / 技术", {"开源"}),
-    ("公司动态 / 融资", {"融资/公司动态"}),
-    ("研究 / 新闻 / 其他", {"研究", "新闻", "其他"}),
-]
-
-SOURCE_TYPE_LABELS = {
-    "official_global": "国际官方发布",
-    "official_china": "中国官方发布",
-    "product_discovery": "产品发现",
-    "open_source": "开源生态",
-    "research": "研究趋势",
-    "media_global": "国际媒体报道",
-    "media_china": "中文媒体报道",
-    "official": "官方发布",
-    "product": "产品发现",
-    "media": "媒体报道",
-}
-
-SOURCE_TYPE_SECTION_STYLE = {
-    "official_global": {
-        "summary_label": "官方摘要",
-        "why_label": "发布看点",
-        "audience_label": "适合关注",
-        "roundup_title": "**官方链接速览：**",
-    },
-    "official_china": {
-        "summary_label": "国产动态摘要",
-        "why_label": "值得关注",
-        "audience_label": "适合关注",
-        "roundup_title": "**国产官方链接速览：**",
-    },
-    "product_discovery": {
-        "summary_label": "产品摘要",
-        "why_label": "体验亮点",
-        "audience_label": "适用人群",
-        "roundup_title": "**产品链接速览：**",
-    },
-    "open_source": {
-        "summary_label": "开源摘要",
-        "why_label": "技术看点",
-        "audience_label": "适合读者",
-        "roundup_title": "**开源链接速览：**",
-    },
-    "research": {
-        "summary_label": "研究摘要",
-        "why_label": "研究价值",
-        "audience_label": "适合读者",
-        "roundup_title": "**研究链接速览：**",
-    },
-    "media_global": {
-        "summary_label": "媒体摘要",
-        "why_label": "新闻价值",
-        "audience_label": "适合读者",
-        "roundup_title": "**国际媒体链接速览：**",
-    },
-    "media_china": {
-        "summary_label": "中文媒体摘要",
-        "why_label": "新闻价值",
-        "audience_label": "适合读者",
-        "roundup_title": "**中文媒体链接速览：**",
-    },
-}
+FIXED_INTRO = "> 每天 3 分钟，快速看完当天值得关注的 AI 产品、开源、研究与行业动态。"
+SECTION_ORDER = ["产品与应用", "公司动态", "研究与趋势"]
 
 
 def build_daily_report(
@@ -83,293 +21,201 @@ def build_daily_report(
 ) -> str:
     tz = ZoneInfo(timezone_name)
     report_date = datetime.now(tz).date().isoformat()
-    all_items = top_items + [item for items in section_items.values() for item in items] + low_priority_items
-    category_counter = Counter(item.get("category_suggestion") or item.get("category") or "其他" for item in all_items)
-    tag_counter = Counter(tag for item in all_items for tag in item.get("tags", []))
-    source_type_counter = Counter(item.get("source_type") or "unknown" for item in all_items)
+    regular_items = [item for section in SECTION_ORDER for item in section_items.get(section, [])]
+    all_items = top_items + regular_items + low_priority_items
 
-    top_categories = "、".join(name for name, _ in category_counter.most_common(3)) or "产品、应用、研究"
-    top_tags = "、".join(name for name, _ in tag_counter.most_common(5)) or "AI产品、开发者工具、大模型"
-    top_source_types = "、".join(
-        SOURCE_TYPE_LABELS.get(name, name) for name, _ in source_type_counter.most_common(3)
-    ) or "官方发布、研究趋势、媒体报道"
+    topic_counter = Counter(tag for item in all_items for tag in item.get("topic_tags", []) or item.get("tags", []))
+    main_topics = "、".join(name for name, _ in topic_counter.most_common(4)) or "Agent、企业级 AI、开发工具、多模态"
+    editorial_judgment = choose_editorial_judgment(editorial_summary, all_items)
 
     lines = [
-        f"# AI Daily Scout | {report_date}",
+        f"# AI Daily Scout｜{report_date}",
         "",
-        "> 每天一份 AI 资讯整理，帮你快速看完当天值得关注的产品、开源、研究与行业动态。",
+        FIXED_INTRO,
         "",
-        "## 今天先看什么",
-        f"- 今日共抓取 **{stats.get('fetched_count', 0)}** 条资讯，去重后 **{stats.get('deduped_count', 0)}** 条，最终收录 **{stats.get('included_count', 0)}** 条。",
-        f"- 资讯主要集中在：{top_categories}",
-        f"- 今日高频关键词：{top_tags}",
-        f"- 今日主要来源类型：{top_source_types}",
-        f"- 主编摘要：{editorial_summary.get('overview', '今天 AI 动态仍以产品、应用和模型能力更新为主。')}",
+        "## 今日概览",
+        "",
+        f"- 今日共抓取 AI 相关资讯 **{stats.get('raw_count', stats.get('fetched_count', 0))}** 条，经去重、聚类与质量筛选后，最终收录 **{stats.get('final_count', stats.get('included_count', 0))}** 条",
+        f"- 今日关注主线：{main_topics}",
+        f"- 编辑判断：{editorial_judgment}",
+        "",
+        "## 今日最值得看的 3 件事",
         "",
     ]
 
     if top_items:
-        lines.extend(["## 今天最值得看的 3 件事", ""])
         for index, item in enumerate(top_items[:3], start=1):
-            lines.extend(render_featured_item(index, item, all_items))
+            lines.extend(render_top_item(index, item))
+    else:
+        lines.extend(["### 暂无重点条目", "今天没有足够高质量的重点内容进入 Top 3。", ""])
 
-    for section_name, categories in SECTION_ORDER:
-        items = []
-        for category in categories:
-            items.extend(section_items.get(category, []))
+    for section in SECTION_ORDER:
+        items = section_items.get(section, [])
         if not items:
             continue
-        lines.extend([f"## {section_name}", ""])
-        section_rendered_urls: set[str] = set()
-        for source_type, grouped_items in group_by_source_type(items).items():
-            lines.extend([f"### {SOURCE_TYPE_LABELS.get(source_type, source_type)}", ""])
-            rendered_items = grouped_items[: min(3, len(grouped_items))]
-            for item in rendered_items:
-                lines.extend(render_section_item(item, all_items))
-                if item.get("url"):
-                    section_rendered_urls.add(item["url"])
-            lines.extend(render_link_roundup(grouped_items, rendered_urls=section_rendered_urls, source_type=source_type))
-        if section_name == "研究 / 新闻 / 其他":
-            lines.extend(render_quick_links_block(items, low_priority_items, rendered_urls=section_rendered_urls))
+        lines.extend([f"## {section}", ""])
+        for item in items:
+            lines.extend(render_section_item(item))
 
     if low_priority_items:
-        lines.extend(["## 还可以顺手看一眼", ""])
-        for item in low_priority_items[:12]:
+        lines.extend(["## 快讯速览", ""])
+        for item in low_priority_items[:8]:
             lines.append(
-                f"- **{item.get('zh_title') or item.get('title')}**："
-                f"{build_item_summary(item)} "
-                f"[原文]({item.get('url') or ''})"
+                f"- **{item.get('zh_title') or item.get('clean_title') or item.get('title')}**："
+                f"{build_quick_hint(item)} [原文]({item.get('url') or ''})"
             )
         lines.append("")
 
+    lines.extend(
+        [
+            "## 今天怎么读",
+            "",
+            f"- 如果你更关心产品落地，优先看“产品与应用”和 Top 3 里的企业场景条目。",
+            f"- 如果你在追踪行业变化，重点看“公司动态”和其中的合作、融资、平台动作。",
+            f"- 如果你做模型、算法或开发工具，重点看“研究与趋势”和快讯里的高频主题：{main_topics}。",
+            "",
+            "## 备注",
+            "",
+            "- 文中“趋势上升”表示该内容在今日讨论度明显提升，并不一定是当天首次发布。",
+            "- 日报已对同主题信息做聚合，默认保留更原始、信息更完整的来源作为主条目。",
+            "",
+        ]
+    )
     return "\n".join(lines).strip() + "\n"
 
 
-def render_featured_item(index: int, item: dict[str, Any], all_items: list[dict[str, Any]]) -> list[str]:
+def render_top_item(index: int, item: dict[str, Any]) -> list[str]:
     lines = [
-        f"### {index}. {item.get('zh_title') or item.get('title')}",
-        "",
-        f"{build_item_summary(item)}",
-        "",
-        f"**来源**：{item.get('source') or '未知来源'} | **类型**：`{item.get('source_type') or 'unknown'}` | [查看原文]({item.get('url') or ''})",
+        f"### {index}）{item.get('zh_title') or item.get('clean_title') or item.get('title')}",
+        build_one_line_summary(item),
     ]
-    lines.extend(render_model_editorial_lines(item, style=None))
-    lines.extend(render_extended_links(item, label="延伸阅读", fallback_items=all_items, minimum_links=2, maximum_links=4))
-    lines.extend(["", "---", ""])
-    return lines
-
-
-def render_section_item(item: dict[str, Any], all_items: list[dict[str, Any]]) -> list[str]:
-    style = get_source_type_style(item.get("source_type", ""))
-    lines = [
-        f"#### {item.get('zh_title') or item.get('title')}",
-        "",
-        f"**{style['summary_label']}**：{build_item_summary(item)}",
-        "",
-        f"**来源**：{item.get('source') or '未知来源'} | [查看原文]({item.get('url') or ''})",
-    ]
-    lines.extend(render_model_editorial_lines(item, style=style))
-    lines.extend(render_extended_links(item, label="更多链接", fallback_items=all_items, minimum_links=1, maximum_links=3))
-    lines.extend(["", "---", ""])
-    return lines
-
-
-def render_extended_links(
-    item: dict[str, Any],
-    label: str,
-    *,
-    fallback_items: list[dict[str, Any]],
-    minimum_links: int,
-    maximum_links: int,
-) -> list[str]:
-    links = build_link_suggestions(item, fallback_items, maximum_links=maximum_links)
-    if len(links) < minimum_links:
-        return []
-    link_text = "；".join(f"[{entry['label']}]({entry['url']})" for entry in links[:maximum_links])
-    return ["", f"**{label}**：{link_text}"]
-
-
-def render_link_roundup(items: list[dict[str, Any]], *, rendered_urls: set[str], source_type: str) -> list[str]:
-    links: list[str] = []
-    seen_urls = set(rendered_urls)
-
-    for item in items:
-        url = str(item.get("url", "")).strip()
-        if url and url not in seen_urls:
-            seen_urls.add(url)
-            links.append(f"- [{item.get('zh_title') or item.get('title')}]({url})")
-        for source in item.get("related_sources", []):
-            related_url = str(source.get("url", "")).strip()
-            if not related_url or related_url in seen_urls:
-                continue
-            seen_urls.add(related_url)
-            label = source.get("source") or source.get("title") or "相关来源"
-            links.append(f"- [{label}]({related_url})")
-        if len(links) >= 12:
-            break
-
-    if not links:
-        return []
-
-    lines = [get_source_type_style(source_type)["roundup_title"]]
-    lines.extend(links[:12])
-    lines.append("")
-    return lines
-
-
-def render_quick_links_block(
-    section_items: list[dict[str, Any]],
-    low_priority_items: list[dict[str, Any]],
-    *,
-    rendered_urls: set[str],
-) -> list[str]:
-    section_categories = {"研究", "新闻", "其他"}
-    quick_candidates = [
-        item
-        for item in low_priority_items
-        if (item.get("category_suggestion") or item.get("category") or "其他") in section_categories
-    ]
-    if not quick_candidates:
-        quick_candidates = [
-            item
-            for item in section_items
-            if item.get("url") and item.get("url") not in rendered_urls
+    trend_note = build_trend_note(item)
+    if trend_note:
+        lines.extend(["", trend_note])
+    lines.extend(
+        [
+            f"**为什么值得看：** {build_reason_to_watch(item)}",
+            f"**适合谁看：** {build_target_audience(item)}",
+            f"**原文：** {item.get('url') or ''}",
+            "",
         ]
-
-    quick_items = sorted(
-        quick_candidates,
-        key=lambda item: (int(item.get("importance_score", 0)), int(item.get("priority", 50))),
-        reverse=True,
-    )[:12]
-    if not quick_items:
-        return []
-
-    lines = ["### 更多快讯链接", ""]
-    seen_urls = set(rendered_urls)
-    added = 0
-    for item in quick_items:
-        url = str(item.get("url", "")).strip()
-        if not url or url in seen_urls:
-            continue
-        seen_urls.add(url)
-        source = item.get("source") or "未知来源"
-        title = item.get("zh_title") or item.get("title") or "未命名条目"
-        lines.append(f"- [{title}]({url}) - {source}")
-        added += 1
-        if added >= 12:
-            break
-    if added == 0:
-        return []
-    lines.append("")
+    )
     return lines
 
 
-def group_by_source_type(items: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for item in items:
-        key = item.get("source_type") or "unknown"
-        grouped.setdefault(key, []).append(item)
-    return grouped
-
-
-def build_link_suggestions(
-    item: dict[str, Any],
-    fallback_items: list[dict[str, Any]],
-    *,
-    maximum_links: int,
-) -> list[dict[str, str]]:
-    suggestions: list[dict[str, str]] = []
-    seen_urls: set[str] = set()
-
-    for source in item.get("related_sources", []):
-        url = str(source.get("url", "")).strip()
-        if not url or url == item.get("url") or url in seen_urls:
-            continue
-        seen_urls.add(url)
-        suggestions.append(
-            {
-                "label": source.get("source") or source.get("title") or "相关来源",
-                "url": url,
-            }
-        )
-        if len(suggestions) >= maximum_links:
-            return suggestions
-
-    item_category = item.get("category_suggestion") or item.get("category")
-    item_source_type = item.get("source_type")
-    fallback_candidates = [
-        candidate
-        for candidate in fallback_items
-        if str(candidate.get("url", "")).strip()
-        and str(candidate.get("url", "")).strip() != item.get("url")
-        and (
-            (candidate.get("category_suggestion") or candidate.get("category")) == item_category
-            or candidate.get("source_type") == item_source_type
-        )
+def render_section_item(item: dict[str, Any]) -> list[str]:
+    lines = [
+        f"### {item.get('zh_title') or item.get('clean_title') or item.get('title')}",
+        build_one_line_summary(item),
     ]
-    if len(fallback_candidates) < 2:
-        return suggestions
-
-    for candidate in fallback_candidates:
-        candidate_url = str(candidate.get("url", "")).strip()
-        if not candidate_url or candidate_url == item.get("url") or candidate_url in seen_urls:
-            continue
-        seen_urls.add(candidate_url)
-        suggestions.append(
-            {
-                "label": candidate.get("zh_title") or candidate.get("title") or candidate.get("source") or "相关条目",
-                "url": candidate_url,
-            }
-        )
-        if len(suggestions) >= maximum_links:
-            break
-
-    return suggestions
+    trend_note = build_trend_note(item)
+    if trend_note:
+        lines.extend(["", trend_note])
+    lines.extend(
+        [
+            f"**看点：** {build_reason_to_watch(item)}",
+            f"**原文：** {item.get('url') or ''}",
+            "",
+        ]
+    )
+    return lines
 
 
-def build_item_summary(item: dict[str, Any]) -> str:
-    model_summary = str(item.get("what_happened") or "").strip()
-    if has_meaningful_text(model_summary):
-        return model_summary
+def build_one_line_summary(item: dict[str, Any]) -> str:
     summary = (
-        item.get("summary")
+        item.get("one_line_takeaway")
         or item.get("short_summary")
-        or item.get("one_line_takeaway")
+        or item.get("summary_zh")
+        or item.get("summary")
+        or item.get("what_happened")
         or "信息不足"
     )
-    return str(summary).strip() or "信息不足"
+    text = clean_text(summary)
+    return trim_text(text, 70)
 
 
-def get_source_type_style(source_type: str) -> dict[str, str]:
-    return SOURCE_TYPE_SECTION_STYLE.get(
-        source_type,
-        {
-            "summary_label": "摘要",
-            "why_label": "为什么值得看",
-            "audience_label": "适合读者",
-            "roundup_title": "**资讯链接速览：**",
-        },
-    )
+def build_reason_to_watch(item: dict[str, Any]) -> str:
+    reason = item.get("why_it_matters") or infer_reason_from_item(item)
+    return trim_text(clean_text(reason), 50)
 
 
-def render_model_editorial_lines(item: dict[str, Any], style: dict[str, str] | None) -> list[str]:
-    if not item.get("generated_by_model"):
-        return []
-
-    why_label = "为什么重要" if style is None else style["why_label"]
-    audience_label = "谁应该关注" if style is None else style["audience_label"]
-    commentary_label = "编辑短评" if style is None else "编辑判断"
-
-    lines: list[str] = []
-    if has_meaningful_text(item.get("why_it_matters")):
-        lines.extend([f"**{why_label}**：{item.get('why_it_matters')}", ""])
-    if has_meaningful_text(item.get("who_should_care")):
-        lines.extend([f"**{audience_label}**：{item.get('who_should_care')}", ""])
-    if has_meaningful_text(item.get("my_commentary")):
-        lines.extend([f"**{commentary_label}**：{item.get('my_commentary')}", ""])
-    return lines
+def build_target_audience(item: dict[str, Any]) -> str:
+    audience = item.get("who_should_care") or infer_audience_from_item(item)
+    return trim_text(clean_text(audience), 40)
 
 
-def has_meaningful_text(value: Any) -> bool:
-    text = str(value or "").strip()
-    return bool(text and text != "信息不足")
+def build_quick_hint(item: dict[str, Any]) -> str:
+    hint = item.get("one_line_takeaway") or item.get("summary") or "今日值得顺手关注"
+    return trim_text(clean_text(hint), 20)
+
+
+def build_trend_note(item: dict[str, Any]) -> str:
+    trend_type = str(item.get("trend_type", "")).strip()
+    if trend_type == "trending":
+        return "注：该内容为当日趋势上升，并非当日首次发布。"
+    if trend_type == "recap":
+        return "注：该内容更偏复盘与延续性进展，适合作为背景跟踪。"
+    if trend_type == "evergreen":
+        return "注：该内容并非当天新发，但今天仍具有较高参考价值。"
+    return ""
+
+
+def choose_editorial_judgment(editorial_summary: dict[str, Any], items: list[dict[str, Any]]) -> str:
+    overview = clean_text(editorial_summary.get("overview"))
+    if overview and len(overview) >= 20:
+        first_sentence = overview.split("。", 1)[0].strip()
+        if first_sentence:
+            return trim_text(first_sentence, 80)
+
+    tags = Counter(tag for item in items for tag in item.get("topic_tags", []) or item.get("tags", []))
+    top_tags = {name for name, _ in tags.most_common(4)}
+    if {"Agent", "企业应用"} & top_tags:
+        return "今天更值得关注的不是单纯模型变强，而是 AI 继续进入真实工作流和企业场景。"
+    if "开发者工具" in top_tags:
+        return "今天的重点不在概念热度，而在开发工具和平台能力继续加速成熟。"
+    return "今天的高价值信息更集中在可落地产品、研究进展与行业动作的交叉地带。"
+
+
+def infer_reason_from_item(item: dict[str, Any]) -> str:
+    source_type = str(item.get("source_type", "")).strip()
+    category = str(item.get("display_section") or "").strip()
+    title = clean_text(item.get("zh_title") or item.get("title"))
+    if source_type in {"official_global", "official_china"}:
+        return f"{title[:22]}来自一手官方来源，信息更完整，适合作为当天判断基准。"
+    if source_type == "open_source":
+        return "它更接近开发者可直接上手的能力变化，实操参考价值更高。"
+    if category == "公司动态":
+        return "它反映了公司层面的真实动作，比泛泛观点更能代表行业方向。"
+    if category == "研究与趋势":
+        return "它代表了近期技术演进或热点方向，适合判断接下来会往哪里走。"
+    return "它对产品、技术或行业判断都有直接参考价值。"
+
+
+def infer_audience_from_item(item: dict[str, Any]) -> str:
+    section = str(item.get("display_section") or "").strip()
+    source_type = str(item.get("source_type", "")).strip()
+    if section == "产品与应用":
+        return "产品经理、应用开发者、企业数字化团队"
+    if section == "公司动态":
+        return "行业研究者、投资人、战略和业务负责人"
+    if section == "研究与趋势":
+        return "算法工程师、模型团队、技术决策者"
+    if source_type == "open_source":
+        return "开发者、开源维护者、技术团队负责人"
+    return "关注 AI 产品与行业变化的读者"
+
+
+def clean_text(value: Any) -> str:
+    return " ".join(str(value or "").replace("\n", " ").split()).strip()
+
+
+def trim_text(text: str, limit: int) -> str:
+    text = clean_text(text)
+    if len(text) <= limit:
+        return text
+    clipped = text[:limit]
+    for separator in ("。", "，", "；", ".", ";", " "):
+        idx = clipped.rfind(separator)
+        if idx >= int(limit * 0.6):
+            return clipped[:idx].strip("，；,; ")
+    return clipped.rstrip("，；,; ") + "…"

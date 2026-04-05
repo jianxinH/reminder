@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -20,11 +21,8 @@ from app.scout.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-TOP_THRESHOLD = 75
-REGULAR_THRESHOLD = 60
-MIN_REPORT_ITEMS = 12
 TARGET_REPORT_ITEMS = 18
-MIN_LOW_PRIORITY_ITEMS = 6
+MIN_SECTION_ITEMS = 3
 CORE_SOURCE_TYPES = {
     "official_global",
     "official_china",
@@ -38,6 +36,23 @@ CORE_SOURCE_TYPES = {
     "media",
 }
 HIGH_TRUST_SOURCE_TYPES = {"official_global", "official_china", "open_source", "research", "official"}
+SECTION_MAP = {
+    "产品": "产品与应用",
+    "应用": "产品与应用",
+    "融资/公司动态": "公司动态",
+    "研究": "研究与趋势",
+    "新闻": "研究与趋势",
+    "开源": "研究与趋势",
+    "其他": "研究与趋势",
+}
+TOPIC_PRIORITY_KEYWORDS = {
+    "Agent": 20,
+    "企业应用": 16,
+    "开发者工具": 16,
+    "多模态": 14,
+    "大模型": 10,
+    "AI产品": 10,
+}
 
 
 def has_complete_model_summary(item: dict[str, Any]) -> bool:
@@ -52,28 +67,6 @@ def ensure_directories() -> None:
     Path("reports").mkdir(parents=True, exist_ok=True)
 
 
-def filter_recent_items(
-    items: list[dict[str, Any]],
-    recent_days: int,
-    timezone_name: str,
-) -> list[dict[str, Any]]:
-    if recent_days <= 0:
-        return items
-
-    tz = ZoneInfo(timezone_name)
-    cutoff = datetime.now(tz) - timedelta(days=recent_days)
-    filtered: list[dict[str, Any]] = []
-
-    for item in items:
-        published_at = parse_datetime(item.get("published_at", ""), tz)
-        if published_at is None:
-            filtered.append(item)
-            continue
-        if published_at >= cutoff:
-            filtered.append(item)
-    return filtered
-
-
 def parse_datetime(value: str, timezone: ZoneInfo) -> datetime | None:
     if not value:
         return None
@@ -86,162 +79,36 @@ def parse_datetime(value: str, timezone: ZoneInfo) -> datetime | None:
     return parsed.astimezone(timezone)
 
 
+def filter_recent_items(
+    items: list[dict[str, Any]],
+    recent_days: int,
+    timezone_name: str,
+) -> list[dict[str, Any]]:
+    if recent_days <= 0:
+        return items
+
+    tz = ZoneInfo(timezone_name)
+    cutoff = datetime.now(tz) - timedelta(days=recent_days)
+    filtered: list[dict[str, Any]] = []
+    for item in items:
+        published_at = parse_datetime(item.get("published_at", ""), tz)
+        if published_at is None or published_at >= cutoff:
+            filtered.append(item)
+    return filtered
+
+
 def sort_items_by_priority(items: list[dict[str, Any]], timezone_name: str) -> list[dict[str, Any]]:
     tz = ZoneInfo(timezone_name)
     return sorted(
         items,
         key=lambda item: (
+            float(item.get("editorial_score", 0)),
             int(item.get("importance_score", 0)),
-            int(item.get("priority", 50)),
+            int(item.get("quality_score", 0)),
             parse_datetime(item.get("published_at", ""), tz) or datetime.min.replace(tzinfo=tz),
         ),
         reverse=True,
     )
-
-
-def partition_items(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
-    sorted_items = sorted(
-        items,
-        key=lambda item: (int(item.get("importance_score", 0)), int(item.get("priority", 50))),
-        reverse=True,
-    )
-
-    top_candidates = [item for item in sorted_items if item.get("importance_score", 0) >= TOP_THRESHOLD]
-    regular_candidates = [
-        item
-        for item in sorted_items
-        if item not in top_candidates
-        and item.get("is_ai_related", True)
-        and item.get("importance_score", 0) >= REGULAR_THRESHOLD
-    ]
-    low_priority_candidates = [
-        item
-        for item in sorted_items
-        if item not in top_candidates and item not in regular_candidates and item.get("is_ai_related", True)
-    ]
-
-    balanced_top_items, used_urls = select_balanced_top_items(top_candidates, regular_candidates, limit=3)
-    top_candidates = balanced_top_items
-    regular_candidates = [item for item in regular_candidates if item.get("url", "") not in used_urls]
-
-    regular_candidates, low_priority_candidates = ensure_category_presence(
-        regular_candidates,
-        low_priority_candidates,
-        preferred_categories={"研究", "新闻", "其他"},
-        minimum_per_category=1,
-    )
-
-    included_count = len(top_candidates) + len(regular_candidates)
-    if included_count < TARGET_REPORT_ITEMS:
-        promote_count = min(TARGET_REPORT_ITEMS - included_count, len(low_priority_candidates))
-        regular_candidates.extend(low_priority_candidates[:promote_count])
-        low_priority_candidates = low_priority_candidates[promote_count:]
-
-    if len(low_priority_candidates) < MIN_LOW_PRIORITY_ITEMS:
-        spillback_count = min(
-            MIN_LOW_PRIORITY_ITEMS - len(low_priority_candidates),
-            max(len(regular_candidates) - MIN_REPORT_ITEMS, 0),
-        )
-        if spillback_count > 0:
-            spillback_items = regular_candidates[-spillback_count:]
-            regular_candidates = regular_candidates[:-spillback_count]
-            low_priority_candidates = spillback_items + low_priority_candidates
-
-    section_items: dict[str, list[dict[str, Any]]] = {}
-    for item in regular_candidates:
-        category = item.get("category_suggestion") or item.get("category") or "其他"
-        section_items.setdefault(category, []).append(item)
-
-    return top_candidates[:3], section_items, low_priority_candidates
-
-
-def select_balanced_top_items(
-    top_candidates: list[dict[str, Any]],
-    regular_candidates: list[dict[str, Any]],
-    *,
-    limit: int,
-) -> tuple[list[dict[str, Any]], set[str]]:
-    pool = list(top_candidates) + list(regular_candidates)
-    if not pool:
-        return [], set()
-
-    preferred_categories = ("产品", "应用", "开源", "研究")
-    selected: list[dict[str, Any]] = []
-    used_urls: set[str] = set()
-    used_sources: set[str] = set()
-
-    def try_add(candidate: dict[str, Any], *, avoid_same_source: bool) -> bool:
-        url = str(candidate.get("url", "")).strip()
-        source = str(candidate.get("source", "")).strip()
-        if not url or url in used_urls:
-            return False
-        if avoid_same_source and source and source in used_sources:
-            return False
-        selected.append(candidate)
-        used_urls.add(url)
-        if source:
-            used_sources.add(source)
-        return True
-
-    for category in preferred_categories:
-        if len(selected) >= limit:
-            break
-        for candidate in pool:
-            candidate_category = candidate.get("category_suggestion") or candidate.get("category") or "其他"
-            if candidate_category != category:
-                continue
-            if try_add(candidate, avoid_same_source=True):
-                break
-
-    if len(selected) < limit:
-        for candidate in pool:
-            if len(selected) >= limit:
-                break
-            try_add(candidate, avoid_same_source=True)
-
-    if len(selected) < limit:
-        for candidate in pool:
-            if len(selected) >= limit:
-                break
-            try_add(candidate, avoid_same_source=False)
-
-    return selected, used_urls
-
-
-def ensure_category_presence(
-    regular_candidates: list[dict[str, Any]],
-    low_priority_candidates: list[dict[str, Any]],
-    *,
-    preferred_categories: set[str],
-    minimum_per_category: int,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    regular = list(regular_candidates)
-    low_priority = list(low_priority_candidates)
-
-    for category in preferred_categories:
-        current_count = sum(
-            1
-            for item in regular
-            if (item.get("category_suggestion") or item.get("category") or "其他") == category
-        )
-        if current_count >= minimum_per_category:
-            continue
-
-        needed = minimum_per_category - current_count
-        matching = [
-            item
-            for item in low_priority
-            if (item.get("category_suggestion") or item.get("category") or "其他") == category
-        ][:needed]
-        if not matching:
-            continue
-
-        regular.extend(matching)
-        low_priority = [item for item in low_priority if item not in matching]
-
-    regular.sort(key=lambda item: (int(item.get("importance_score", 0)), int(item.get("priority", 50))), reverse=True)
-    low_priority.sort(key=lambda item: (int(item.get("importance_score", 0)), int(item.get("priority", 50))), reverse=True)
-    return regular, low_priority
 
 
 def supplement_with_recent_database_items(
@@ -256,35 +123,19 @@ def supplement_with_recent_database_items(
     )
     existing_urls = {item.get("url", "") for item in eligible_items}
     supplement_items = [item for item in stored_items if item.get("url", "") not in existing_urls]
-
     needed = max(TARGET_REPORT_ITEMS - len(eligible_items), 0)
-    if needed == 0:
-        needed = min(len(supplement_items), max(report_top_n, MIN_LOW_PRIORITY_ITEMS))
-
-    chosen_supplements = supplement_items[:needed]
-    return eligible_items + chosen_supplements, len(chosen_supplements)
+    chosen = supplement_items[:needed]
+    return eligible_items + chosen, len(chosen)
 
 
 def fallback_with_current_cards(
     eligible_items: list[dict[str, Any]],
     cards: list[dict[str, Any]],
-    report_top_n: int,
 ) -> tuple[list[dict[str, Any]], int]:
-    fallback_candidates = [
-        item
-        for item in cards
-        if (
-            item.get("is_ai_related", True)
-            or item.get("importance_score", 0) >= 20
-            or item.get("source_type") in {"official", "open_source", "research", "product", "media"}
-        )
-    ]
     existing_urls = {item.get("url", "") for item in eligible_items}
-    supplements = [item for item in fallback_candidates if item.get("url", "") not in existing_urls]
+    supplements = [item for item in cards if item.get("url", "") not in existing_urls]
     needed = max(TARGET_REPORT_ITEMS - len(eligible_items), 0)
-    if needed <= 0:
-        needed = max(MIN_LOW_PRIORITY_ITEMS, 0)
-    chosen = supplements[: max(needed, MIN_REPORT_ITEMS - len(eligible_items), 0)]
+    chosen = supplements[:needed]
     return eligible_items + chosen, len(chosen)
 
 
@@ -302,12 +153,252 @@ def refresh_editorial_cards(
         if refreshed < refresh_limit and not has_complete_model_summary(item):
             article_id = repository.get_article_id_by_url(item.get("url", ""))
             if article_id:
-                updated_card = {**item, **summarizer.summarize_item(item)}
+                updated_card = enrich_item_for_report({**item, **summarizer.summarize_item(item)}, timezone_name)
                 repository.insert_article_summary(article_id, updated_card)
                 current_item = updated_card
                 refreshed += 1
         refreshed_items.append(current_item)
     return refreshed_items, refreshed
+
+
+def enrich_item_for_report(item: dict[str, Any], timezone_name: str) -> dict[str, Any]:
+    tz = ZoneInfo(timezone_name)
+    enriched = {**item}
+    category = str(item.get("category_suggestion") or item.get("category") or "其他")
+    enriched["display_section"] = SECTION_MAP.get(category, "研究与趋势")
+    enriched["trend_type"] = detect_trend_type(item, tz)
+    enriched["topic_tags"] = derive_topic_tags(item)
+    enriched["quality_score"] = compute_quality_score(item)
+    enriched["editorial_score"] = compute_editorial_score(enriched, tz)
+    if not enriched.get("clean_title"):
+        enriched["clean_title"] = item.get("zh_title") or item.get("title") or ""
+    if not enriched.get("canonical_url"):
+        enriched["canonical_url"] = item.get("url", "")
+    if not enriched.get("published_date"):
+        enriched["published_date"] = str(item.get("published_at", ""))[:10]
+    if not enriched.get("related_links"):
+        enriched["related_links"] = item.get("related_sources", [])
+    if not enriched.get("target_audience_zh"):
+        enriched["target_audience_zh"] = normalize_target_audience(item.get("who_should_care"))
+    enriched["summary_zh"] = item.get("one_line_takeaway") or item.get("short_summary") or item.get("summary") or ""
+    return enriched
+
+
+def derive_topic_tags(item: dict[str, Any]) -> list[str]:
+    tags = [str(tag).strip() for tag in item.get("tags", []) if str(tag).strip()]
+    text = " ".join(
+        [
+            str(item.get("zh_title", "")),
+            str(item.get("title", "")),
+            str(item.get("summary", "")),
+            str(item.get("what_happened", "")),
+        ]
+    ).lower()
+    inferred = []
+    if "agent" in text or "智能体" in text:
+        inferred.append("Agent")
+    if any(keyword in text for keyword in ("enterprise", "workflow", "业务", "企业")):
+        inferred.append("企业应用")
+    if any(keyword in text for keyword in ("developer", "sdk", "api", "cli", "copilot", "编程")):
+        inferred.append("开发者工具")
+    if any(keyword in text for keyword in ("multimodal", "video", "image", "audio", "多模态")):
+        inferred.append("多模态")
+    if any(keyword in text for keyword in ("model", "llm", "gpt", "claude", "qwen", "大模型")):
+        inferred.append("大模型")
+
+    result: list[str] = []
+    seen: set[str] = set()
+    for tag in tags + inferred:
+        if tag not in seen:
+            result.append(tag)
+            seen.add(tag)
+    return result[:6]
+
+
+def compute_quality_score(item: dict[str, Any]) -> int:
+    score = 40
+    title = str(item.get("clean_title") or item.get("zh_title") or item.get("title") or "").strip()
+    summary = str(item.get("summary") or item.get("what_happened") or "").strip()
+    source_type = str(item.get("source_type", "")).strip()
+    if 8 <= len(title) <= 100:
+        score += 10
+    if summary:
+        score += min(20, len(summary) // 12)
+    if source_type in HIGH_TRUST_SOURCE_TYPES:
+        score += 12
+    if item.get("generated_by_model"):
+        score += 8
+    if item.get("related_sources"):
+        score += 5
+    if any(bad in title.lower() for bad in ("giveaway", "casino", "click here", "subscribe")):
+        score -= 30
+    return max(0, min(score, 100))
+
+
+def compute_editorial_score(item: dict[str, Any], timezone: ZoneInfo) -> float:
+    source_authority = source_authority_score(item)
+    freshness = freshness_score(item, timezone)
+    topic_priority = topic_priority_score(item)
+    originality = originality_score(item)
+    applicability = applicability_score(item)
+    return round(
+        0.30 * source_authority
+        + 0.20 * freshness
+        + 0.20 * topic_priority
+        + 0.15 * originality
+        + 0.15 * applicability,
+        2,
+    )
+
+
+def source_authority_score(item: dict[str, Any]) -> int:
+    mapping = {
+        "official_global": 95,
+        "official_china": 92,
+        "research": 88,
+        "open_source": 84,
+        "media_global": 76,
+        "media_china": 70,
+        "product_discovery": 68,
+        "official": 88,
+        "product": 72,
+        "media": 66,
+    }
+    return mapping.get(str(item.get("source_type", "")).strip(), 60)
+
+
+def freshness_score(item: dict[str, Any], timezone: ZoneInfo) -> int:
+    published_at = parse_datetime(item.get("published_at", ""), timezone)
+    if published_at is None:
+        return 55
+    age_hours = max((datetime.now(timezone) - published_at).total_seconds() / 3600, 0)
+    if age_hours <= 24:
+        return 95
+    if age_hours <= 72:
+        return 80
+    if age_hours <= 168:
+        return 60
+    return 40
+
+
+def topic_priority_score(item: dict[str, Any]) -> int:
+    tags = item.get("topic_tags", []) or []
+    score = 55
+    for tag in tags:
+        score += TOPIC_PRIORITY_KEYWORDS.get(tag, 0)
+    return min(score, 100)
+
+
+def originality_score(item: dict[str, Any]) -> int:
+    source_type = str(item.get("source_type", "")).strip()
+    related_count = len(item.get("related_sources", []) or [])
+    base = 60
+    if source_type in {"official_global", "official_china", "research", "open_source"}:
+        base = 88
+    elif source_type in {"media_global", "media_china"}:
+        base = 68
+    if related_count >= 3:
+        base += 5
+    return min(base, 100)
+
+
+def applicability_score(item: dict[str, Any]) -> int:
+    section = str(item.get("display_section", "")).strip()
+    if section == "产品与应用":
+        return 90
+    if section == "公司动态":
+        return 74
+    if section == "研究与趋势":
+        return 70
+    return 65
+
+
+def detect_trend_type(item: dict[str, Any], timezone: ZoneInfo) -> str:
+    published_at = parse_datetime(item.get("published_at", ""), timezone)
+    if published_at is None:
+        return "trending"
+    now = datetime.now(timezone)
+    age_days = (now.date() - published_at.date()).days
+    source_type = str(item.get("source_type", "")).strip()
+    if age_days <= 1:
+        return "new_release"
+    if age_days <= 7:
+        return "trending"
+    if source_type in {"research", "open_source"}:
+        return "evergreen"
+    return "recap"
+
+
+def normalize_target_audience(value: Any) -> list[str]:
+    if not value:
+        return []
+    text = str(value).replace("、", ",").replace("，", ",")
+    return [part.strip() for part in text.split(",") if part.strip()][:4]
+
+
+def choose_top_items(items: list[dict[str, Any]], settings: Any, timezone_name: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    selected: list[dict[str, Any]] = []
+    remainder: list[dict[str, Any]] = []
+    source_counter: Counter[str] = Counter()
+    topic_counter: Counter[str] = Counter()
+    section_counter: Counter[str] = Counter()
+    target_count = settings.newsletter_max_top_items
+
+    for item in sort_items_by_priority(items, timezone_name):
+        source = str(item.get("source", "")).strip()
+        section = str(item.get("display_section", "")).strip()
+        primary_topic = next(iter(item.get("topic_tags", []) or []), "")
+
+        source_ok = source_counter[source] < settings.newsletter_max_items_per_source_in_top if source else True
+        topic_ok = topic_counter[primary_topic] < settings.newsletter_max_items_per_topic_in_top if primary_topic else True
+        section_ok = True
+        if len(selected) < target_count and section_counter["产品与应用"] == 0 and len(selected) >= target_count - 1:
+            section_ok = section == "产品与应用"
+
+        if len(selected) < target_count and source_ok and topic_ok and section_ok:
+            selected.append(item)
+            if source:
+                source_counter[source] += 1
+            if primary_topic:
+                topic_counter[primary_topic] += 1
+            if section:
+                section_counter[section] += 1
+        else:
+            remainder.append(item)
+
+    return selected[:target_count], remainder + selected[target_count:]
+
+
+def build_sections(
+    items: list[dict[str, Any]],
+    settings: Any,
+    timezone_name: str,
+) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    quick_hits: list[dict[str, Any]] = []
+    for item in sort_items_by_priority(items, timezone_name):
+        section = item.get("display_section") or "研究与趋势"
+        if int(item.get("quality_score", 0)) < 45 or int(item.get("importance_score", 0)) < 45:
+            quick_hits.append(item)
+            continue
+        if section in SECTION_MAP.values():
+            grouped[section].append(item)
+        else:
+            quick_hits.append(item)
+
+    section_items: dict[str, list[dict[str, Any]]] = {}
+    for section in SECTION_ORDER:
+        candidates = grouped.get(section, [])
+        if len(candidates) < MIN_SECTION_ITEMS:
+            deficit = MIN_SECTION_ITEMS - len(candidates)
+            borrowed = quick_hits[:deficit]
+            quick_hits = quick_hits[deficit:]
+            candidates = candidates + borrowed
+        section_items[section] = candidates[:4]
+
+    seen_urls = {item.get("url", "") for items_in_section in section_items.values() for item in items_in_section}
+    quick_hits = [item for item in quick_hits if item.get("url", "") not in seen_urls]
+    return section_items, quick_hits[: settings.newsletter_max_quick_hits]
 
 
 def run_pipeline() -> dict[str, Any]:
@@ -351,57 +442,53 @@ def run_pipeline() -> dict[str, Any]:
         filtered_items.append(item)
     logger.info("过滤数据库中已存在 URL 后条数: %s", len(filtered_items))
 
-    existing_recent_items = repository.get_items_by_urls(existing_recent_urls, limit=max(TARGET_REPORT_ITEMS * 3, settings.report_top_n * 3))
+    existing_recent_items = repository.get_items_by_urls(existing_recent_urls, limit=max(TARGET_REPORT_ITEMS * 4, settings.report_top_n * 4))
+    existing_recent_items = [enrich_item_for_report(item, settings.report_timezone) for item in existing_recent_items]
     logger.info("从数据库回收已存在近期条数: %s", len(existing_recent_items))
 
     unique_items = dedupe_items(filtered_items)
-    logger.info("去重后条数: %s", len(unique_items))
+    logger.info("去重后候选条数: %s", len(unique_items))
 
     classified_items = classify_items(unique_items)
 
     cards: list[dict[str, Any]] = []
     processed_count = 0
-    for item in sort_items_by_priority(classified_items, settings.report_timezone):
+    for item in classified_items:
         article_id = repository.insert_article(item)
-        card = {**item, **summarizer.summarize_item(item)}
+        card = enrich_item_for_report({**item, **summarizer.summarize_item(item)}, settings.report_timezone)
         repository.insert_article_summary(article_id, card)
         cards.append(card)
         processed_count += 1
 
-    new_eligible_items = [
+    eligible_items = [
         item
-        for item in cards
+        for item in dedupe_items(existing_recent_items + cards)
         if (
             item.get("is_ai_related", True)
             or item.get("source_type") in CORE_SOURCE_TYPES
         )
         and (
             item.get("include_in_report", False)
-            or item.get("importance_score", 0) >= REGULAR_THRESHOLD
-            or item.get("importance_score", 0) >= 20
             or item.get("source_type") in HIGH_TRUST_SOURCE_TYPES
+            or int(item.get("quality_score", 0)) >= 55
+            or float(item.get("editorial_score", 0)) >= 70
         )
     ]
-    eligible_items = dedupe_items(existing_recent_items + new_eligible_items)
 
     db_supplement_count = 0
     if len(eligible_items) < TARGET_REPORT_ITEMS:
-        logger.info("本次可用条目偏少，尝试从数据库补足最近 %s 天内容。", settings.recent_days)
         eligible_items, db_supplement_count = supplement_with_recent_database_items(
             repository=repository,
             eligible_items=eligible_items,
             recent_days=settings.recent_days,
             report_top_n=settings.report_top_n,
         )
+        eligible_items = [enrich_item_for_report(item, settings.report_timezone) for item in eligible_items]
 
     current_card_fallback_count = 0
     if len(eligible_items) < TARGET_REPORT_ITEMS:
-        logger.info("可用条目仍然偏少，补充当日已处理卡片。")
-        eligible_items, current_card_fallback_count = fallback_with_current_cards(
-            eligible_items=eligible_items,
-            cards=cards,
-            report_top_n=settings.report_top_n,
-        )
+        eligible_items, current_card_fallback_count = fallback_with_current_cards(eligible_items, cards)
+        eligible_items = [enrich_item_for_report(item, settings.report_timezone) for item in eligible_items]
 
     refreshed_summary_count = 0
     if eligible_items:
@@ -413,25 +500,31 @@ def run_pipeline() -> dict[str, Any]:
             timezone_name=settings.report_timezone,
         )
 
-    top_items, section_items, low_priority_items = partition_items(eligible_items)
-    included_items = top_items + [item for items in section_items.values() for item in items] + low_priority_items
+    top_items, remaining_items = choose_top_items(eligible_items, settings, settings.report_timezone)
+    section_items, low_priority_items = build_sections(remaining_items, settings, settings.report_timezone)
+
+    final_items = top_items + [item for section in SECTION_ORDER for item in section_items.get(section, [])] + low_priority_items
+    final_items = dedupe_items(final_items)
+    final_urls = {item.get("url", "") for item in final_items}
+    top_items = [item for item in top_items if item.get("url", "") in final_urls][: settings.newsletter_max_top_items]
+    for section in SECTION_ORDER:
+        section_items[section] = [item for item in section_items.get(section, []) if item.get("url", "") in final_urls]
+    low_priority_items = [item for item in low_priority_items if item.get("url", "") in final_urls][: settings.newsletter_max_quick_hits]
 
     stats = {
-        "fetched_count": len(raw_items),
+        "raw_count": len(raw_items),
         "normalized_count": len(normalized_items),
-        "deduped_count": len(unique_items),
+        "dedup_count": len(unique_items),
         "processed_count": processed_count,
         "top_count": len(top_items),
-        "regular_count": sum(len(items) for items in section_items.values()),
-        "low_priority_count": len(low_priority_items),
-        "included_count": len(included_items),
+        "final_count": len(final_items),
+        "included_count": len(final_items),
         "db_supplement_count": db_supplement_count,
         "current_card_fallback_count": current_card_fallback_count,
         "refreshed_summary_count": refreshed_summary_count,
     }
 
-    editorial_summary = daily_editor.build_daily_summary(included_items, stats)
-
+    editorial_summary = daily_editor.build_daily_summary(final_items, stats)
     report_markdown = build_daily_report(
         top_items=top_items,
         section_items=section_items,
@@ -446,7 +539,7 @@ def run_pipeline() -> dict[str, Any]:
         output_dir="reports",
         timezone_name=settings.report_timezone,
     )
-    repository.insert_report(report_path=report_path, item_count=len(included_items))
+    repository.insert_report(report_path=report_path, item_count=len(final_items))
 
     stats["report_path"] = str(report_path)
     logger.info("处理完成: %s", stats)
@@ -457,15 +550,9 @@ def main() -> None:
     try:
         stats = run_pipeline()
         print("\n=== AI Daily Scout ===")
-        print(f"抓取条数: {stats['fetched_count']}")
-        print(f"标准化后条数: {stats['normalized_count']}")
-        print(f"去重后条数: {stats['deduped_count']}")
-        print(f"模型处理条数: {stats['processed_count']}")
-        print(f"收录到重点区条数: {stats['top_count']}")
-        print(f"收录到普通区条数: {stats['regular_count']}")
-        print(f"低优先级简讯条数: {stats['low_priority_count']}")
-        print(f"数据库补足条数: {stats['db_supplement_count']}")
-        print(f"当日卡片兜底条数: {stats['current_card_fallback_count']}")
+        print(f"抓取总量: {stats['raw_count']}")
+        print(f"最终收录量: {stats['final_count']}")
+        print(f"重点推荐量: {stats['top_count']}")
         print(f"最终日报路径: {stats['report_path']}")
     except Exception as exc:
         logger.exception("主流程运行失败: %s", exc)

@@ -13,27 +13,19 @@ SYSTEM_PROMPT = """
 你是一名中文 AI 科技日报编辑，写作风格接近科技公众号主编，而不是研究报告撰写人。你的任务不只是做摘要，还要完成筛选、归类、提炼重点和编辑式表达。
 
 你的目标不是机械复述原文，而是帮助读者快速判断：
-1. 这件事发生了什么
-2. 为什么值得关注
-3. 对哪些人有价值
-4. 它在今天的 AI 资讯里重要性如何
+1. 这件事发生了什么？
+2. 为什么值得关注？
+3. 对哪些人有价值？
+4. 它在今天的 AI 资讯里重要性如何？
 
 写作要求：
-- 中文表达自然、清楚、像公众号编辑写给读者看的资讯导语
-- “发生了什么”必须写成适合日报正文展示的完整中文摘要，优先使用 2~4 句完整句子，避免只写半句、短语或标题改写
-- 优先说人话，少用“该动态”“该事项”“相关方向”等公文化表述
-- 可以有编辑判断，但不要端着，不要写成行业报告或咨询文风
-- 句子之间要有信息推进感，不要把同一句意思换个说法重复两遍
-- 不要空话，不要官话，不要重复标题
-- 不要编造原文没有的信息
-- 信息不足时明确写“信息不足”
+- 中文表达自然、清楚，像公众号编辑写给读者看的资讯导语
+- “发生了什么”必须写成适合日报正文展示的完整中文摘要，优先使用 2~4 句完整句子
+- 优先说人话，少用公文和行业报告腔
+- 可以有编辑判断，但不要夸张，不要编造原文没有的信息
 - 输出必须是合法 JSON
 - 不要输出 markdown
 - 不要输出额外解释
-
-判断原则：
-- 优先收录：模型/产品正式发布、关键功能更新、重要开源项目、企业应用落地、重要融资并购、开发者工具变化
-- 降低权重：纯观点评论、重复转述、信息量很低的快讯、与 AI 关系较弱的内容
 """.strip()
 
 USER_PROMPT_TEMPLATE = """
@@ -47,7 +39,6 @@ USER_PROMPT_TEMPLATE = """
 原始摘要: {summary}
 
 【任务要求】
-请完成以下内容：
 1. 判断是否属于 AI 相关资讯
 2. 判断分类：
    - 新闻
@@ -59,10 +50,10 @@ USER_PROMPT_TEMPLATE = """
    - 其他
 3. 输出一个适合中文日报展示的标题
 4. 给出一句话结论
-5. 说明“发生了什么”，写成适合公众号日报正文的完整摘要
-6. 说明“为什么重要”，要说清它对行业、产品、开发者或市场的意义
-7. 说明“谁应该关注”，尽量写具体读者，而不是泛泛地说“从业者”
-8. 给出一段不超过80字的编辑短评，语气像公众号编辑的点题，不要像研究结论
+5. 说明“发生了什么”，写成完整摘要段落
+6. 说明“为什么重要”
+7. 说明“谁应该关注”
+8. 给出一句不超过 80 字的编辑短评
 9. 判断是否建议收录到日报
 10. 给出 0~100 的重要性分数
 
@@ -72,10 +63,10 @@ USER_PROMPT_TEMPLATE = """
   "category_suggestion": "产品",
   "zh_title": "这里填写中文标题",
   "one_line_takeaway": "这里填写一句话结论",
-  "what_happened": "这里填写一段适合日报正文展示的完整摘要，尽量 2~4 句，句子完整，不要只写半句",
-  "why_it_matters": "这里填写为什么重要",
-  "who_should_care": "这里填写谁应该关注",
-  "my_commentary": "这里填写编辑短评",
+  "what_happened": "这里填写适合日报正文展示的完整摘要，尽量 2~4 句，句子完整，不要只写半句。",
+  "why_it_matters": "这里填写为什么重要。",
+  "who_should_care": "这里填写谁应该关注。",
+  "my_commentary": "这里填写编辑短评。",
   "include_in_report": true,
   "importance_score": 88,
   "confidence": 0.91,
@@ -87,10 +78,7 @@ USER_PROMPT_TEMPLATE = """
 - 不要加代码块
 - 不要加解释
 - 不要照抄标题作为摘要
-- “what_happened”请写成完整摘要段，不要只写一个短句
-- “why_it_matters”不要只写“与 AI 相关所以重要”，要给出更具体的理由
-- “my_commentary”要像编辑一句话点题，不要像行业报告结论
-- 如果内容重复、信息少或不够重要，可以 include_in_report 设为 false
+- “what_happened”必须是完整摘要段落
 """.strip()
 
 
@@ -107,29 +95,47 @@ class NewsSummarizer:
             return fallback
 
         try:
-            response = httpx.post(
-                f"{self.base_url}/responses",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": self.model,
-                    "input": [
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": self._build_user_prompt(item)},
-                    ],
-                    "text": {"format": {"type": "json_object"}},
-                },
-                timeout=45.0,
-            )
+            response = self._request_model(item)
             response.raise_for_status()
             payload = response.json()
-            parsed = self._normalize_payload(self._parse_response_json(payload), item, fallback)
+            parsed = self._normalize_payload(self._parse_model_json(payload), item, fallback)
             return parsed
         except Exception as exc:
             logger.warning("单条资讯卡片生成失败，已回退到本地兜底: %s", exc)
             return fallback
+
+    def _request_model(self, item: dict[str, Any]) -> httpx.Response:
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        if self._uses_chat_completions():
+            return httpx.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json={
+                    "model": self.model,
+                    "messages": [
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": self._build_user_prompt(item)},
+                    ],
+                    "temperature": 0.2,
+                },
+                timeout=45.0,
+            )
+        return httpx.post(
+            f"{self.base_url}/responses",
+            headers=headers,
+            json={
+                "model": self.model,
+                "input": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": self._build_user_prompt(item)},
+                ],
+                "text": {"format": {"type": "json_object"}},
+            },
+            timeout=45.0,
+        )
 
     def fallback_summary(self, item: dict[str, Any], reason: str = "信息不足") -> dict[str, Any]:
         summary = clean_sentence(item.get("summary") or item.get("title", ""))
@@ -137,7 +143,7 @@ class NewsSummarizer:
         is_ai_related = is_probably_ai_related(item)
         importance = estimate_importance(item, is_ai_related=is_ai_related)
         include_in_report = is_ai_related and importance >= 40
-        takeaway = summary[:90] if summary else "信息不足"
+        takeaway = summary[:90] if summary else reason
 
         return {
             "is_ai_related": is_ai_related,
@@ -167,17 +173,38 @@ class NewsSummarizer:
             summary=item.get("summary", ""),
         )
 
+    def _uses_chat_completions(self) -> bool:
+        return "modelscope" in self.base_url.lower()
+
     def _parse_response_json(self, payload: dict[str, Any]) -> dict[str, Any]:
         output_text = payload.get("output_text")
         if isinstance(output_text, str) and output_text.strip():
-            return json.loads(output_text)
+            return json.loads(extract_json_text(output_text))
 
         for output in payload.get("output", []):
             for content in output.get("content", []):
                 text = content.get("text")
                 if isinstance(text, str) and text.strip():
-                    return json.loads(text)
+                    return json.loads(extract_json_text(text))
         return {}
+
+    def _parse_chat_completions_json(self, payload: dict[str, Any]) -> dict[str, Any]:
+        for choice in payload.get("choices", []):
+            message = choice.get("message", {})
+            content = message.get("content")
+            if isinstance(content, str) and content.strip():
+                return json.loads(extract_json_text(content))
+            if isinstance(content, list):
+                for part in content:
+                    text = part.get("text") if isinstance(part, dict) else None
+                    if isinstance(text, str) and text.strip():
+                        return json.loads(extract_json_text(text))
+        return {}
+
+    def _parse_model_json(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if self._uses_chat_completions():
+            return self._parse_chat_completions_json(payload)
+        return self._parse_response_json(payload)
 
     def _normalize_payload(
         self,
@@ -410,4 +437,20 @@ def clean_paragraph(value: Any, limit: int) -> str:
         last_index = clipped.rfind(separator)
         if last_index >= int(limit * 0.6):
             return clipped[: last_index + 1].strip()
-    return clipped.rstrip(" ,，、;；:：") + "…"
+    return clipped.rstrip(" ,，。！？；") + "…"
+
+
+def extract_json_text(text: str) -> str:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        lines = stripped.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        stripped = "\n".join(lines).strip()
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start != -1 and end != -1 and end >= start:
+        return stripped[start : end + 1]
+    return stripped

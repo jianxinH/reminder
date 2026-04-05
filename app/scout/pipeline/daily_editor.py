@@ -14,11 +14,11 @@ DAILY_EDITOR_PROMPT = """
 你是一名 AI 科技日报主编。下面是今天已经筛选后的资讯卡片列表。
 
 请输出一份日报级总结，严格返回 JSON，包含：
-1. overview: 用2~3句话总结今天AI资讯的整体情况
-2. top_stories: 列出今天最值得关注的3件事，每件事给一句原因
-3. trend_observations: 给出2~4条今日趋势观察
-4. follow_up_topics: 给出2~3个值得明天继续追踪的话题
-5. low_priority_summary: 用1段话概括那些重要性较低但可备案的信息
+1. overview: 用 2~3 句话总结今天 AI 资讯的整体情况
+2. top_stories: 列出今天最值得关注的 3 件事，每件事给一句原因
+3. trend_observations: 给出 2~4 条趋势观察
+4. follow_up_topics: 给出 2~3 个值得明天继续跟踪的话题
+5. low_priority_summary: 用 1 段话概括那些重要性较低但可备查的信息
 
 要求：
 - 信息密度高
@@ -45,29 +45,48 @@ class DailyEditor:
             return fallback
 
         try:
-            response = httpx.post(
-                f"{self.base_url}/responses",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": self.model,
-                    "input": [
-                        {"role": "system", "content": DAILY_EDITOR_PROMPT},
-                        {"role": "user", "content": self._build_items_prompt(items, stats)},
-                    ],
-                    "text": {"format": {"type": "json_object"}},
-                },
-                timeout=45.0,
-            )
+            response = self._request_model(items, stats)
             response.raise_for_status()
             payload = response.json()
-            parsed = self._parse_response_json(payload)
+            parsed = self._parse_model_json(payload)
             return self._normalize_summary(parsed, fallback)
         except Exception as exc:
             logger.warning("日报级总结生成失败，已回退到本地兜底: %s", exc)
             return fallback
+
+    def _request_model(self, items: list[dict[str, Any]], stats: dict[str, Any]) -> httpx.Response:
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        user_prompt = self._build_items_prompt(items, stats)
+        if self._uses_chat_completions():
+            return httpx.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json={
+                    "model": self.model,
+                    "messages": [
+                        {"role": "system", "content": DAILY_EDITOR_PROMPT},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    "temperature": 0.2,
+                },
+                timeout=45.0,
+            )
+        return httpx.post(
+            f"{self.base_url}/responses",
+            headers=headers,
+            json={
+                "model": self.model,
+                "input": [
+                    {"role": "system", "content": DAILY_EDITOR_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "text": {"format": {"type": "json_object"}},
+            },
+            timeout=45.0,
+        )
 
     def _build_items_prompt(self, items: list[dict[str, Any]], stats: dict[str, Any]) -> str:
         compact_items = [
@@ -90,16 +109,37 @@ class DailyEditor:
             ensure_ascii=False,
         )
 
+    def _uses_chat_completions(self) -> bool:
+        return "modelscope" in self.base_url.lower()
+
     def _parse_response_json(self, payload: dict[str, Any]) -> dict[str, Any]:
         output_text = payload.get("output_text")
         if isinstance(output_text, str) and output_text.strip():
-            return json.loads(output_text)
+            return json.loads(extract_json_text(output_text))
         for output in payload.get("output", []):
             for content in output.get("content", []):
                 text = content.get("text")
                 if isinstance(text, str) and text.strip():
-                    return json.loads(text)
+                    return json.loads(extract_json_text(text))
         return {}
+
+    def _parse_chat_completions_json(self, payload: dict[str, Any]) -> dict[str, Any]:
+        for choice in payload.get("choices", []):
+            message = choice.get("message", {})
+            content = message.get("content")
+            if isinstance(content, str) and content.strip():
+                return json.loads(extract_json_text(content))
+            if isinstance(content, list):
+                for part in content:
+                    text = part.get("text") if isinstance(part, dict) else None
+                    if isinstance(text, str) and text.strip():
+                        return json.loads(extract_json_text(text))
+        return {}
+
+    def _parse_model_json(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if self._uses_chat_completions():
+            return self._parse_chat_completions_json(payload)
+        return self._parse_response_json(payload)
 
     def _normalize_summary(self, parsed: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
         if not parsed:
@@ -121,9 +161,7 @@ class DailyEditor:
         }
 
     def _fallback_summary(self, items: list[dict[str, Any]], stats: dict[str, Any]) -> dict[str, Any]:
-        categories = Counter(
-            item.get("category_suggestion") or item.get("category") or "其他" for item in items
-        )
+        categories = Counter(item.get("category_suggestion") or item.get("category") or "其他" for item in items)
         tags = Counter(tag for item in items for tag in item.get("tags", []))
         top_items = sorted(items, key=lambda item: item.get("importance_score", 0), reverse=True)[:3]
         low_priority_items = [item for item in items if item.get("importance_score", 0) < 60][:5]
@@ -132,8 +170,8 @@ class DailyEditor:
         top_tags = "、".join(name for name, _ in tags.most_common(4)) or "AI产品、开发者工具、模型能力"
 
         overview = (
-            f"今天 AI 资讯整体仍以{top_categories}为主，说明市场关注点继续集中在可落地产品、开发工具和模型能力变化。"
-            f"高频关键词包括{top_tags}，从中可以看出行业仍在围绕“更好用、更可部署、更贴近业务”推进。"
+            f"今天 AI 资讯整体仍以{top_categories}为主，关注点集中在可落地产品、开发者工具和模型能力变化。"
+            f"高频关键词包括{top_tags}，说明行业仍在围绕更好用、更可部署、更贴近业务推进。"
         )
 
         top_stories = [
@@ -151,9 +189,7 @@ class DailyEditor:
             for tag, _ in tags.most_common(3)
         ]
 
-        low_priority_summary = (
-            "低优先级资讯主要是信息量较少、更新幅度有限或偏补充性质的动态，仍建议保留做背景跟踪。"
-        )
+        low_priority_summary = "低优先级资讯主要是信息量较少、更新幅度有限或偏补充性质的动态，仍建议保留做背景跟踪。"
         if low_priority_items:
             low_priority_summary = (
                 "低优先级简讯主要包括："
@@ -207,3 +243,19 @@ def filter_editorial_lines(lines: list[str], *, section: str) -> list[str]:
         seen.add(line)
         filtered.append(line)
     return filtered
+
+
+def extract_json_text(text: str) -> str:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        lines = stripped.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        stripped = "\n".join(lines).strip()
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start != -1 and end != -1 and end >= start:
+        return stripped[start : end + 1]
+    return stripped

@@ -26,6 +26,16 @@ class Settings(BaseSettings):
     recent_days: int = Field(default=3, alias="SCOUT_RECENT_DAYS")
     max_summary_items: int = Field(default=30, alias="SCOUT_MAX_SUMMARY_ITEMS")
     log_level: str = Field(default="INFO", alias="SCOUT_LOG_LEVEL")
+    newsletter_max_top_items: int = Field(default=3, alias="NEWSLETTER_MAX_TOP_ITEMS")
+    newsletter_max_quick_hits: int = Field(default=8, alias="NEWSLETTER_MAX_QUICK_HITS")
+    newsletter_max_related_links_per_item: int = Field(default=2, alias="NEWSLETTER_MAX_RELATED_LINKS_PER_ITEM")
+    newsletter_max_items_per_source_in_top: int = Field(default=2, alias="NEWSLETTER_MAX_ITEMS_PER_SOURCE_IN_TOP")
+    newsletter_max_items_per_topic_in_top: int = Field(default=1, alias="NEWSLETTER_MAX_ITEMS_PER_TOPIC_IN_TOP")
+    newsletter_output_style: str = Field(default="feishu_compact", alias="NEWSLETTER_OUTPUT_STYLE")
+    newsletter_summary_language: str = Field(default="zh", alias="NEWSLETTER_SUMMARY_LANGUAGE")
+    newsletter_enable_trend_label: bool = Field(default=True, alias="NEWSLETTER_ENABLE_TREND_LABEL")
+    newsletter_enable_editorial_reason: bool = Field(default=True, alias="NEWSLETTER_ENABLE_EDITORIAL_REASON")
+    newsletter_filter_controversial_items: bool = Field(default=True, alias="NEWSLETTER_FILTER_CONTROVERSIAL_ITEMS")
 
     model_config = SettingsConfigDict(
         env_file=".env",
