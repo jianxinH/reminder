@@ -17,11 +17,16 @@ def init_db(database_path: str) -> None:
             CREATE TABLE IF NOT EXISTS articles (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
+                clean_title TEXT,
+                normalized_title TEXT,
                 url TEXT NOT NULL UNIQUE,
+                canonical_url TEXT,
                 source TEXT,
                 source_type TEXT,
                 source_language TEXT,
                 published_at TEXT,
+                published_date TEXT,
+                discovered_date TEXT,
                 summary TEXT,
                 raw_category TEXT,
                 category_hint TEXT,
@@ -65,6 +70,16 @@ def init_db(database_path: str) -> None:
                 who_should_care TEXT,
                 my_commentary TEXT,
                 short_summary TEXT,
+                display_section TEXT,
+                trend_type TEXT,
+                summary_zh TEXT,
+                why_it_matters_zh TEXT,
+                target_audience_zh TEXT,
+                topic_tags TEXT,
+                quality_score INTEGER DEFAULT 0,
+                editorial_score REAL DEFAULT 0.0,
+                cluster_id TEXT,
+                related_links TEXT,
                 include_in_report INTEGER NOT NULL DEFAULT 1,
                 importance_score INTEGER DEFAULT 50,
                 confidence REAL DEFAULT 0.0,
@@ -87,10 +102,25 @@ def init_db(database_path: str) -> None:
         ensure_column(cursor, "article_summaries", "short_summary", "TEXT")
         ensure_column(cursor, "article_summaries", "related_sources", "TEXT")
         ensure_column(cursor, "article_summaries", "generated_by_model", "INTEGER NOT NULL DEFAULT 0")
+        ensure_column(cursor, "article_summaries", "display_section", "TEXT")
+        ensure_column(cursor, "article_summaries", "trend_type", "TEXT")
+        ensure_column(cursor, "article_summaries", "summary_zh", "TEXT")
+        ensure_column(cursor, "article_summaries", "why_it_matters_zh", "TEXT")
+        ensure_column(cursor, "article_summaries", "target_audience_zh", "TEXT")
+        ensure_column(cursor, "article_summaries", "topic_tags", "TEXT")
+        ensure_column(cursor, "article_summaries", "quality_score", "INTEGER DEFAULT 0")
+        ensure_column(cursor, "article_summaries", "editorial_score", "REAL DEFAULT 0.0")
+        ensure_column(cursor, "article_summaries", "cluster_id", "TEXT")
+        ensure_column(cursor, "article_summaries", "related_links", "TEXT")
         ensure_column(cursor, "articles", "source_type", "TEXT")
         ensure_column(cursor, "articles", "source_language", "TEXT")
         ensure_column(cursor, "articles", "category_hint", "TEXT")
         ensure_column(cursor, "articles", "priority", "INTEGER DEFAULT 50")
+        ensure_column(cursor, "articles", "clean_title", "TEXT")
+        ensure_column(cursor, "articles", "normalized_title", "TEXT")
+        ensure_column(cursor, "articles", "canonical_url", "TEXT")
+        ensure_column(cursor, "articles", "published_date", "TEXT")
+        ensure_column(cursor, "articles", "discovered_date", "TEXT")
 
         cursor.execute(
             """

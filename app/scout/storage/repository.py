@@ -7,6 +7,56 @@ from pathlib import Path
 from typing import Any
 
 
+ARTICLE_SELECT = """
+    SELECT
+        a.id,
+        a.title,
+        a.clean_title,
+        a.normalized_title,
+        a.url,
+        a.canonical_url,
+        a.source,
+        a.source_type,
+        a.source_language,
+        a.published_at,
+        a.published_date,
+        a.discovered_date,
+        a.summary,
+        a.raw_category,
+        a.category_hint,
+        a.priority,
+        a.content_hash,
+        s.is_ai_related,
+        s.zh_title,
+        s.category_suggestion,
+        s.one_line_takeaway,
+        s.what_happened,
+        s.why_it_matters,
+        s.who_should_care,
+        s.my_commentary,
+        s.short_summary,
+        s.display_section,
+        s.trend_type,
+        s.summary_zh,
+        s.why_it_matters_zh,
+        s.target_audience_zh,
+        s.topic_tags,
+        s.quality_score,
+        s.editorial_score,
+        s.cluster_id,
+        s.related_links,
+        s.include_in_report,
+        s.importance_score,
+        s.confidence,
+        s.tags,
+        s.related_sources,
+        s.generated_by_model,
+        s.model_name
+    FROM articles a
+    LEFT JOIN article_summaries s ON s.article_id = a.id
+"""
+
+
 class ArticleRepository:
     def __init__(self, database_path: str) -> None:
         self.database_path = Path(database_path)
@@ -37,17 +87,38 @@ class ArticleRepository:
             cursor = conn.execute(
                 """
                 INSERT INTO articles (
-                    title, url, source, source_type, source_language, published_at, summary, raw_category,
-                    category_hint, priority, content_hash, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    title,
+                    clean_title,
+                    normalized_title,
+                    url,
+                    canonical_url,
+                    source,
+                    source_type,
+                    source_language,
+                    published_at,
+                    published_date,
+                    discovered_date,
+                    summary,
+                    raw_category,
+                    category_hint,
+                    priority,
+                    content_hash,
+                    created_at,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item.get("title", ""),
+                    item.get("clean_title", ""),
+                    item.get("normalized_title", ""),
                     item.get("url", ""),
+                    item.get("canonical_url", ""),
                     item.get("source", ""),
                     item.get("source_type", ""),
                     item.get("source_language", ""),
                     item.get("published_at", ""),
+                    item.get("published_date", ""),
+                    item.get("discovered_date", ""),
                     item.get("summary", ""),
                     item.get("raw_category", ""),
                     item.get("category_hint", ""),
@@ -80,6 +151,16 @@ class ArticleRepository:
                     who_should_care,
                     my_commentary,
                     short_summary,
+                    display_section,
+                    trend_type,
+                    summary_zh,
+                    why_it_matters_zh,
+                    target_audience_zh,
+                    topic_tags,
+                    quality_score,
+                    editorial_score,
+                    cluster_id,
+                    related_links,
                     include_in_report,
                     importance_score,
                     confidence,
@@ -89,7 +170,7 @@ class ArticleRepository:
                     model_name,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     article_id,
@@ -102,6 +183,16 @@ class ArticleRepository:
                     summary.get("who_should_care", ""),
                     summary.get("my_commentary", ""),
                     summary.get("short_summary", ""),
+                    summary.get("display_section", ""),
+                    summary.get("trend_type", ""),
+                    summary.get("summary_zh", ""),
+                    summary.get("why_it_matters_zh", summary.get("why_it_matters", "")),
+                    json.dumps(summary.get("target_audience_zh", []), ensure_ascii=False),
+                    json.dumps(summary.get("topic_tags", []), ensure_ascii=False),
+                    int(summary.get("quality_score", 0)),
+                    float(summary.get("editorial_score", 0.0)),
+                    summary.get("cluster_id", ""),
+                    json.dumps(summary.get("related_links", []), ensure_ascii=False),
                     1 if summary.get("include_in_report", True) else 0,
                     int(summary.get("importance_score", 50)),
                     float(summary.get("confidence", 0.0)),
@@ -148,42 +239,16 @@ class ArticleRepository:
         conn = self._connect()
         try:
             rows = conn.execute(
-                """
-                SELECT
-                    a.id,
-                    a.title,
-                    a.url,
-                    a.source,
-                    a.source_type,
-                    a.source_language,
-                    a.published_at,
-                    a.summary,
-                    a.raw_category,
-                    a.category_hint,
-                    a.priority,
-                    a.content_hash,
-                    s.is_ai_related,
-                    s.zh_title,
-                    s.category_suggestion,
-                    s.one_line_takeaway,
-                    s.what_happened,
-                    s.why_it_matters,
-                    s.who_should_care,
-                    s.my_commentary,
-                    s.short_summary,
-                    s.include_in_report,
-                    s.importance_score,
-                    s.confidence,
-                    s.tags,
-                    s.related_sources,
-                    s.generated_by_model,
-                    s.model_name
-                FROM articles a
-                LEFT JOIN article_summaries s ON s.article_id = a.id
+                f"""
+                {ARTICLE_SELECT}
                 WHERE
                     a.published_at >= ?
-                    OR (a.published_at IS NULL OR a.published_at = '') AND a.created_at >= ?
-                ORDER BY COALESCE(s.importance_score, 50) DESC, COALESCE(NULLIF(a.published_at, ''), a.created_at) DESC, a.id DESC
+                    OR ((a.published_at IS NULL OR a.published_at = '') AND a.created_at >= ?)
+                ORDER BY
+                    COALESCE(s.editorial_score, 0.0) DESC,
+                    COALESCE(s.importance_score, 50) DESC,
+                    COALESCE(NULLIF(a.published_at, ''), a.created_at) DESC,
+                    a.id DESC
                 LIMIT ?
                 """,
                 (cutoff_timestamp(recent_days), cutoff_timestamp(recent_days), limit),
@@ -199,39 +264,13 @@ class ArticleRepository:
 
         placeholders = ",".join("?" for _ in clean_urls)
         sql = f"""
-            SELECT
-                a.id,
-                a.title,
-                    a.url,
-                    a.source,
-                    a.source_type,
-                    a.source_language,
-                    a.published_at,
-                a.summary,
-                a.raw_category,
-                a.category_hint,
-                a.priority,
-                a.content_hash,
-                s.is_ai_related,
-                s.zh_title,
-                s.category_suggestion,
-                s.one_line_takeaway,
-                s.what_happened,
-                s.why_it_matters,
-                s.who_should_care,
-                s.my_commentary,
-                s.short_summary,
-                s.include_in_report,
-                    s.importance_score,
-                    s.confidence,
-                    s.tags,
-                    s.related_sources,
-                    s.generated_by_model,
-                    s.model_name
-                FROM articles a
-            LEFT JOIN article_summaries s ON s.article_id = a.id
+            {ARTICLE_SELECT}
             WHERE a.url IN ({placeholders})
-            ORDER BY COALESCE(s.importance_score, 50) DESC, COALESCE(NULLIF(a.published_at, ''), a.created_at) DESC, a.id DESC
+            ORDER BY
+                COALESCE(s.editorial_score, 0.0) DESC,
+                COALESCE(s.importance_score, 50) DESC,
+                COALESCE(NULLIF(a.published_at, ''), a.created_at) DESC,
+                a.id DESC
         """
         params: list[Any] = list(clean_urls)
         if limit is not None:
@@ -249,25 +288,41 @@ class ArticleRepository:
         return {
             "id": row["id"],
             "title": row["title"],
+            "clean_title": row["clean_title"] or row["title"],
+            "normalized_title": row["normalized_title"] or "",
             "url": row["url"],
+            "canonical_url": row["canonical_url"] or row["url"],
             "source": row["source"],
+            "source_name": row["source"],
             "source_type": row["source_type"] or "",
             "source_language": row["source_language"] or "",
             "published_at": row["published_at"],
+            "published_date": row["published_date"] or (row["published_at"] or "")[:10],
+            "discovered_date": row["discovered_date"] or "",
             "summary": row["summary"],
             "raw_category": row["raw_category"],
             "category_hint": row["category_hint"] or "",
             "priority": row["priority"] if row["priority"] is not None else 50,
             "content_hash": row["content_hash"],
             "is_ai_related": bool(row["is_ai_related"]) if row["is_ai_related"] is not None else True,
-            "zh_title": row["zh_title"] or row["title"],
+            "zh_title": row["zh_title"] or row["clean_title"] or row["title"],
             "category_suggestion": row["category_suggestion"] or row["raw_category"] or "其他",
             "one_line_takeaway": row["one_line_takeaway"] or row["short_summary"] or row["summary"] or row["title"],
             "what_happened": row["what_happened"] or "",
-            "why_it_matters": row["why_it_matters"] or "来自数据库的近期已存内容。",
-            "who_should_care": row["who_should_care"] or "关注 AI 行业变化的读者",
-            "my_commentary": row["my_commentary"] or "适合作为日报补充信息留档。",
+            "why_it_matters": row["why_it_matters"] or "",
+            "who_should_care": row["who_should_care"] or "",
+            "my_commentary": row["my_commentary"] or "",
             "short_summary": row["short_summary"] or row["summary"] or row["title"],
+            "display_section": row["display_section"] or "",
+            "trend_type": row["trend_type"] or "",
+            "summary_zh": row["summary_zh"] or row["one_line_takeaway"] or row["summary"] or "",
+            "why_it_matters_zh": row["why_it_matters_zh"] or row["why_it_matters"] or "",
+            "target_audience_zh": parse_json_list(row["target_audience_zh"]),
+            "topic_tags": parse_json_list(row["topic_tags"]),
+            "quality_score": row["quality_score"] if row["quality_score"] is not None else 0,
+            "editorial_score": row["editorial_score"] if row["editorial_score"] is not None else 0.0,
+            "cluster_id": row["cluster_id"] or "",
+            "related_links": parse_json_list(row["related_links"]),
             "include_in_report": bool(row["include_in_report"]) if row["include_in_report"] is not None else True,
             "importance_score": row["importance_score"] if row["importance_score"] is not None else 50,
             "confidence": row["confidence"] if row["confidence"] is not None else 0.0,
