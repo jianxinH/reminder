@@ -17,7 +17,35 @@ NOISY_TITLE_PREFIX_RE = re.compile(
 )
 MULTISPACE_RE = re.compile(r"\s+")
 TITLE_SEPARATOR_RE = re.compile(r"\s+(?:\||｜|—|-)\s+")
-
+ORG_KEYWORDS = (
+    "university",
+    "institute",
+    "center",
+    "centre",
+    "school",
+    "department",
+    "laboratory",
+    "lab",
+    "college",
+    "academy",
+    "kaust",
+)
+BAD_SUMMARY_ENDINGS = (
+    "with",
+    "for",
+    "to",
+    "and",
+    "or",
+    "that",
+    "which",
+    "using",
+    "based on",
+    "built for",
+    "designed to",
+    "through",
+    "that enhances",
+    "that goes beyond",
+)
 ALLOWLIST_SOURCES = {
     "OpenAI News",
     "Anthropic News",
@@ -37,20 +65,9 @@ ALLOWLIST_SOURCES = {
     "arXiv cs.CL recent",
     "arXiv cs.LG recent",
     "TechCrunch AI",
-    "36氪 AI",
+    "36kr AI",
     "机器之心",
     "新智元",
-}
-
-DENYLIST_KEYWORDS = {
-    "giveaway",
-    "casino",
-    "airdrop",
-    "lottery",
-    "dating",
-    "porn",
-    "betting",
-    "เครดิตฟรี",
 }
 
 
@@ -61,12 +78,16 @@ def normalize_items(raw_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for item in raw_items:
         url = str(item.get("url", "")).strip()
         canonical_url = canonicalize_url(url)
-        raw_title = str(item.get("title", "") or "")
-        clean_title = clean_title_text(raw_title, fallback_summary=str(item.get("summary", "") or ""))
+        raw_title = clean_text(item.get("title", ""))
+        raw_summary = pick_best_raw_summary(item)
+        clean_title = clean_title_text(raw_title, fallback_summary=raw_summary)
         if not canonical_url or not clean_title:
             continue
 
-        summary = clean_summary(item.get("summary", ""))
+        summary = build_usable_summary(raw_summary, clean_title)
+        if not summary:
+            continue
+
         source = clean_text(item.get("source", ""))
         raw_category = clean_text(item.get("raw_category", "") or item.get("category_hint", ""))
         published_at = str(item.get("published_at", "")).strip()
@@ -75,10 +96,13 @@ def normalize_items(raw_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         category_hint = clean_text(item.get("category_hint", ""))
         priority = normalize_priority(item.get("priority", 50))
         normalized_title = title_signature(clean_title)
+        summary_quality = summary_quality_check(summary, clean_title)
 
         normalized_item = {
+            "raw_title": raw_title,
             "title": clean_title,
             "clean_title": clean_title,
+            "display_title": build_display_title(clean_title, raw_summary, canonical_url),
             "normalized_title": normalized_title,
             "url": url,
             "canonical_url": canonical_url,
@@ -89,8 +113,10 @@ def normalize_items(raw_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "published_at": published_at,
             "published_date": published_at[:10] if published_at else "",
             "discovered_date": discovered_date,
+            "raw_summary": raw_summary,
             "summary": summary,
-            "summary_zh": "",
+            "summary_zh": summary,
+            "summary_quality": summary_quality,
             "raw_category": raw_category,
             "category_hint": category_hint,
             "priority": priority,
@@ -101,6 +127,9 @@ def normalize_items(raw_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "editorial_score": 0,
             "cluster_id": "",
             "related_links": [],
+            "why_it_matters_zh": "",
+            "why_template_id": "",
+            "is_trend_note_shown": False,
             "content_hash": build_content_hash(clean_title, summary, source),
         }
         if should_keep_item(normalized_item):
@@ -116,13 +145,11 @@ def should_keep_item(item: dict[str, Any]) -> bool:
     url = str(item.get("canonical_url", "")).strip().lower()
     haystack = f"{title} {summary} {url}".lower()
 
-    if len(title) < 6:
+    if len(title) < 5:
         return False
     if not summary:
         return False
-    if any(keyword in haystack for keyword in DENYLIST_KEYWORDS):
-        return False
-    if "github.com" in url and not looks_like_ai_github_item(title, summary):
+    if looks_like_affiliation(summary):
         return False
     if source in ALLOWLIST_SOURCES:
         return True
@@ -138,27 +165,144 @@ def clean_text(value: Any) -> str:
     return text.strip()
 
 
-def clean_summary(value: Any) -> str:
+def clean_title_text(value: str, *, fallback_summary: str = "") -> str:
     text = clean_text(value)
-    text = text.replace("\u200b", "").strip(" -|")
-    return text[:400]
-
-
-def clean_title_text(value: Any, *, fallback_summary: str = "") -> str:
-    text = clean_text(value)
-    text = text.replace("\u200b", "")
     text = DATE_PREFIX_RE.sub("", text)
     text = NOISY_TITLE_PREFIX_RE.sub("", text)
-    text = TITLE_SEPARATOR_RE.split(text)[0].strip() if len(text) > 140 else text
+    if len(text) > 140:
+        text = TITLE_SEPARATOR_RE.split(text)[0].strip()
     text = re.sub(r"\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b\.?,?\s*", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"\s{2,}", " ", text).strip(" -|:：,，")
-
+    text = text.strip(" -|:：,，")
     if len(text) > 160 or looks_polluted_title(text):
         fallback = first_sentence(clean_text(fallback_summary))
         if fallback and 8 <= len(fallback) <= 100:
             text = fallback
         else:
             text = text[:120].strip(" -|:：,，")
+    return text
+
+
+def build_usable_summary(raw_summary: str, title: str) -> str:
+    summary = clean_text(raw_summary)
+    if not summary or looks_like_affiliation(summary):
+        return fallback_summary_from_title(title)
+    quality = summary_quality_check(summary, title)
+    if quality >= 70:
+        return trim_text(summary, 220)
+    extracted = first_sentence(summary)
+    if summary_quality_check(extracted, title) >= 70:
+        return trim_text(extracted, 220)
+    rewritten = rewrite_summary_fallback(title, summary)
+    if rewritten:
+        return rewritten
+    return fallback_summary_from_title(title)
+
+
+def pick_best_raw_summary(item: dict[str, Any]) -> str:
+    metadata = item.get("metadata") or {}
+    candidates = [
+        item.get("summary", ""),
+        item.get("description", ""),
+        item.get("content", ""),
+        item.get("subtitle", ""),
+        metadata.get("description", "") if isinstance(metadata, dict) else "",
+        metadata.get("summary", "") if isinstance(metadata, dict) else "",
+    ]
+    best = ""
+    best_score = -1
+    title = clean_text(item.get("title", ""))
+    for candidate in candidates:
+        text = clean_text(candidate)
+        if not text:
+            continue
+        score = summary_quality_check(text, title)
+        if score > best_score:
+            best = text
+            best_score = score
+    return best
+
+
+def summary_quality_check(summary: str, title: str) -> int:
+    text = clean_text(summary)
+    if not text:
+        return 0
+    score = 100
+    if len(text) < 24:
+        score -= 45
+    if looks_like_affiliation(text):
+        score -= 70
+    if not ends_like_complete_sentence(text):
+        score -= 25
+    if is_title_like_summary(text, title):
+        score -= 20
+    return max(0, min(score, 100))
+
+
+def looks_like_affiliation(text: str) -> bool:
+    cleaned = clean_text(text)
+    lowered = cleaned.lower()
+    if not cleaned:
+        return False
+    words = cleaned.split()
+    upper_ratio = sum(1 for part in words if part.isupper() and len(part) > 1) / max(len(words), 1)
+    has_org_keyword = any(keyword in lowered for keyword in ORG_KEYWORDS)
+    has_verb = any(token in lowered for token in (" is ", " are ", " was ", " were ", "build", "launch", "release", "introduce", "develop", "improve"))
+    return (has_org_keyword and not has_verb) or (len(words) <= 8 and has_org_keyword) or upper_ratio >= 0.45
+
+
+def ends_like_complete_sentence(text: str) -> bool:
+    cleaned = clean_text(text)
+    if not cleaned:
+        return False
+    if cleaned.endswith(("。", "！", "？", ".", "!", "?")):
+        return True
+    lowered = cleaned.lower()
+    return not any(lowered.endswith(ending) for ending in BAD_SUMMARY_ENDINGS)
+
+
+def is_title_like_summary(summary: str, title: str) -> bool:
+    return title_signature(summary) == title_signature(title)
+
+
+def rewrite_summary_fallback(title: str, summary: str) -> str:
+    title_lower = title.lower()
+    if "agent" in title_lower:
+        return f"该项目聚焦 AI Agent 方向，适合关注智能体工作流与应用落地的读者。"
+    if any(keyword in title_lower for keyword in ("framework", "sdk", "toolkit", "cli", "copilot")):
+        return f"该项目聚焦开发工具与工程集成，适合关注 AI 应用构建效率的读者。"
+    if any(keyword in title_lower for keyword in ("benchmark", "evaluation", "paper", "rag", "multimodal")):
+        return f"该内容聚焦模型能力或方法进展，适合关注研究趋势与技术方向的读者。"
+    return fallback_summary_from_title(title)
+
+
+def fallback_summary_from_title(title: str) -> str:
+    return f"该项目聚焦 {title[:28]} 相关方向，适合关注 AI 产品与技术进展的读者。"
+
+
+def build_display_title(clean_title: str, summary: str, canonical_url: str) -> str:
+    if "github.com/" in canonical_url.lower():
+        path = urlsplit(canonical_url).path.strip("/")
+        parts = [part for part in path.split("/") if part]
+        if len(parts) >= 2:
+            repo_name = prettify_repo_name(parts[1])
+            desc = extract_repo_short_desc(summary)
+            if desc:
+                return f"{repo_name}：{desc}"
+            return repo_name
+    return clean_title
+
+
+def prettify_repo_name(repo_name: str) -> str:
+    pretty = repo_name.replace("-", " ").replace("_", " ").strip()
+    return " ".join(part.capitalize() if part.islower() else part for part in pretty.split())
+
+
+def extract_repo_short_desc(summary: str) -> str:
+    text = clean_text(summary)
+    if not text:
+        return ""
+    text = first_sentence(text)
+    text = trim_text(text, 28)
     return text
 
 
@@ -173,8 +317,20 @@ def looks_polluted_title(text: str) -> bool:
 def first_sentence(text: str) -> str:
     if not text:
         return ""
-    match = re.split(r"(?<=[。！？.!?])\s+", text, maxsplit=1)
-    return match[0].strip()
+    parts = re.split(r"(?<=[。！？.!?])\s+", text, maxsplit=1)
+    return parts[0].strip()
+
+
+def trim_text(text: str, limit: int) -> str:
+    cleaned = clean_text(text)
+    if len(cleaned) <= limit:
+        return cleaned
+    clipped = cleaned[:limit]
+    for sep in ("。", "，", "；", ".", ";", " "):
+        idx = clipped.rfind(sep)
+        if idx >= int(limit * 0.6):
+            return clipped[:idx].strip("，；,; ")
+    return clipped.rstrip("，；,; ") + "…"
 
 
 def canonicalize_url(url: str) -> str:
