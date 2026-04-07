@@ -26,6 +26,8 @@ jobs:
         with:
           fetch-depth: 1
           ref: ${{ github.ref_name }}
+          ssh-key: ${{ secrets.ACTIONS_CHECKOUT_SSH_KEY }}
+          persist-credentials: true
 
       - name: Check system Python
         run: |
@@ -78,9 +80,10 @@ jobs:
           if git diff --cached --quiet; then
             echo "No report changes to commit"
           else
-            git commit -m "Add AI Daily Scout report"
-            git push
+            git commit -m "Add AI Daily Scout report" || echo "git commit failed, continue"
+            git push || echo "git push failed, continue"
           fi
+      
 
       - name: Send report to WeCom
         env:
