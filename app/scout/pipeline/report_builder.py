@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -18,11 +18,10 @@ def build_daily_report(
     stats: dict[str, Any],
     timezone_name: str,
 ) -> str:
-    tz = ZoneInfo(timezone_name)
-    report_date = datetime.now(tz).date().isoformat()
+    report_date = datetime.now(ZoneInfo(timezone_name)).date().isoformat()
     regular_items = [item for section in SECTION_ORDER for item in section_items.get(section, [])]
     all_items = top_items + regular_items + low_priority_items
-    trend_state = {"global": 0, "report_date": report_date}
+    trend_state = {"shown": 0, "report_date": report_date}
     reason_state: Counter[str] = Counter()
 
     lines = [
@@ -67,10 +66,12 @@ def build_overview_lines(stats: dict[str, Any], editorial_summary: dict[str, Any
     raw_count = int(stats.get("raw_count") or stats.get("fetched_count") or 0)
     final_count = int(stats.get("final_count") or stats.get("included_count") or 0)
     topic_counter = Counter(tag for item in items for tag in item.get("topic_tags", []) or [])
-    main_topics = "、".join(topic_name(tag) for tag, _ in topic_counter.most_common(4)) or "Agent、企业级 AI、开发工具、多模态"
+    main_topics = "、".join(topic_name(tag) for tag, _ in topic_counter.most_common(4))
+    if not main_topics:
+        main_topics = "Agent、企业级 AI、开发工具、多模态"
 
     lines: list[str] = []
-    if raw_count > 0 and final_count >= 0 and final_count <= raw_count:
+    if raw_count > 0 and 0 <= final_count <= raw_count:
         lines.append(f"- 今日共抓取 AI 相关资讯 **{raw_count}** 条，经去重、聚类与质量筛选后，最终收录 **{final_count}** 条。")
     elif final_count > 0:
         lines.append(f"- 今日共收录 **{final_count}** 条资讯，抓取链路统计异常，已按最终可用内容生成日报。")
@@ -93,18 +94,16 @@ def render_top_item(index: int, item: dict[str, Any], trend_state: dict[str, Any
     lines = [
         f"### {index}）{get_display_title(item)}",
         build_one_line_summary(item),
+        "",
+        f"**核心内容：** {build_story_body(item, limit=220)}",
+        f"**为什么值得看：** {build_reason_to_watch(item, reason_state)}",
+        f"**技术/产品看点：** {build_extended_takeaway(item)}",
+        f"**适合谁看：** {build_target_audience(item)}",
     ]
     trend_note = build_trend_note(item, trend_state, section="top")
     if trend_note:
-        lines.extend(["", trend_note])
-    lines.extend(
-        [
-            f"**为什么值得看：** {build_reason_to_watch(item, reason_state)}",
-            f"**适合谁看：** {build_target_audience(item)}",
-            f"**原文：** {item.get('url') or ''}",
-            "",
-        ]
-    )
+        lines.append(trend_note)
+    lines.extend([f"**原文：** {item.get('url') or ''}", ""])
     return lines
 
 
@@ -112,7 +111,10 @@ def render_section_item(item: dict[str, Any], reason_state: Counter[str]) -> lis
     return [
         f"### {get_display_title(item)}",
         build_one_line_summary(item),
-        f"**看点：** {build_reason_to_watch(item, reason_state)}",
+        "",
+        f"**核心内容：** {build_story_body(item, limit=180)}",
+        f"**看点：** {build_extended_takeaway(item)}",
+        f"**为什么值得关注：** {build_reason_to_watch(item, reason_state)}",
         f"**原文：** {item.get('url') or ''}",
         "",
     ]
@@ -130,8 +132,8 @@ def get_display_title(item: dict[str, Any]) -> str:
 
 def build_one_line_summary(item: dict[str, Any]) -> str:
     summary = (
-        item.get("summary_zh")
-        or item.get("one_line_takeaway")
+        item.get("one_line_takeaway")
+        or item.get("summary_zh")
         or item.get("short_summary")
         or item.get("summary")
         or item.get("what_happened")
@@ -139,22 +141,40 @@ def build_one_line_summary(item: dict[str, Any]) -> str:
     )
     text = clean_text(summary)
     if not text:
-        return f"该条目聚焦 {get_display_title(item)} 相关方向，适合关注 AI 产品与技术进展的读者。"
-    return trim_text(text, 90)
+        return f"该条目聚焦 {get_display_title(item)} 相关方向，适合关注 AI 产品、工程和研究进展的读者。"
+    return trim_text(text, 80)
+
+
+def build_story_body(item: dict[str, Any], *, limit: int) -> str:
+    candidates = [
+        item.get("what_happened"),
+        item.get("summary_zh"),
+        item.get("summary"),
+        item.get("short_summary"),
+        item.get("one_line_takeaway"),
+    ]
+    for candidate in candidates:
+        text = clean_text(candidate)
+        if len(text) >= 40:
+            return trim_text(text, limit)
+    fallback = clean_text(item.get("one_line_takeaway") or item.get("summary") or "")
+    if fallback:
+        return trim_text(fallback, min(limit, 120))
+    return f"{get_display_title(item)} 目前公开信息有限，但仍值得作为今天的补充阅读线索。"
 
 
 def build_reason_to_watch(item: dict[str, Any], reason_state: Counter[str]) -> str:
     provided = clean_text(item.get("why_it_matters_zh") or item.get("why_it_matters"))
     if provided and provided != get_display_title(item):
-        return trim_text(provided, 60)
+        return trim_text(provided, 110)
 
     tags = {str(tag).lower() for tag in item.get("topic_tags", []) or []}
     if {"agent", "tooling", "coding"} & tags:
         return choose_reason(
             "tooling",
             [
-                "更偏向开发者可上手的工程能力变化，适合作为工作流集成和工具选型参考。",
-                "这类条目更接近实际可部署能力，适合判断工程团队下一步能怎样落地。",
+                "它更接近开发者能直接上手的工程能力变化，适合拿来判断工作流集成、工具替换和团队效率提升的现实价值。",
+                "这类条目通常不只是功能更新，更能反映 Agent 与开发工具链正在如何进入真实生产流程。",
             ],
             reason_state,
         )
@@ -162,8 +182,8 @@ def build_reason_to_watch(item: dict[str, Any], reason_state: Counter[str]) -> s
         return choose_reason(
             "company",
             [
-                "它释放的是商业化和行业节奏信号，比单点功能更新更值得放进长期判断里。",
-                "这类信息更能反映公司和行业资源流向，适合用来判断接下来的市场动作。",
+                "它释放的是商业化与行业节奏信号，能帮助判断资金、合作和产品路线是否正在向更成熟的企业场景收拢。",
+                "相比单点产品更新，这类公司级动作更适合放进长期观察框架里看，因为它往往预示着下一阶段的市场重心。",
             ],
             reason_state,
         )
@@ -171,8 +191,8 @@ def build_reason_to_watch(item: dict[str, Any], reason_state: Counter[str]) -> s
         return choose_reason(
             "research",
             [
-                "它能帮助你判断近期研究重点和方法演进，适合作为技术方向观察样本。",
-                "这类内容更适合拿来判断方法趋势，而不是只看一时热度。",
+                "它更适合用来判断近期研究重心和方法演进，对做模型、算法评估和技术选型的人有持续参考价值。",
+                "这类内容的价值不在一时热度，而在于它往往能提前暴露下一轮方法趋势和评测方向。",
             ],
             reason_state,
         )
@@ -180,8 +200,8 @@ def build_reason_to_watch(item: dict[str, Any], reason_state: Counter[str]) -> s
         return choose_reason(
             "multimodal",
             [
-                "它反映了能力边界和应用场景的继续外扩，适合判断多模态落地空间。",
-                "这类进展更值得从场景扩展角度看，而不只是看单一能力指标。",
+                "它体现的是能力边界和应用场景的外扩，适合判断多模态能力何时真正从展示走向稳定可用。",
+                "如果你关注视频、视觉和语音的落地空间，这类条目通常比单一指标更有长期观察意义。",
             ],
             reason_state,
         )
@@ -191,8 +211,8 @@ def build_reason_to_watch(item: dict[str, Any], reason_state: Counter[str]) -> s
         return choose_reason(
             "product",
             [
-                "这条信息更接近真实使用场景，适合作为产品落地和工具选型参考。",
-                "它更像实际可采用的产品变化，适合业务和产品团队快速判断是否值得跟进。",
+                "这条信息更贴近真实使用场景，适合产品、应用和平台团队快速判断是否值得跟进、试用或接入。",
+                "它反映的不是概念层面的热闹，而是可落地能力是否正在进入更可执行的状态。",
             ],
             reason_state,
         )
@@ -200,19 +220,41 @@ def build_reason_to_watch(item: dict[str, Any], reason_state: Counter[str]) -> s
         return choose_reason(
             "company_section",
             [
-                "它代表的是公司层面的真实动作，能帮助判断行业资源和战略走向。",
-                "这类动作对市场格局和合作方向更敏感，适合作为行业观察样本。",
+                "它对应的是公司层面的真实动作，更适合拿来判断行业资源流向、合作格局和下一步战略重心。",
+                "如果你更关心市场和商业进展，这类信息通常比短期产品热度更值得持续追踪。",
             ],
             reason_state,
         )
     return choose_reason(
         "generic",
         [
-            "它能补足今天的重要背景，帮助判断接下来值得继续跟踪的方向。",
-            "它不是最喧闹的新闻，但能补上今天判断链路里缺少的一块背景信息。",
+            "它补上了今天判断链路里缺少的一块背景信息，适合作为继续追踪某个方向的起点。",
+            "虽然它未必是当天最热的一条，但对理解今天信息结构和趋势拼图仍有明显帮助。",
         ],
         reason_state,
     )
+
+
+def build_extended_takeaway(item: dict[str, Any]) -> str:
+    candidates = [
+        item.get("my_commentary"),
+        item.get("why_it_matters_zh"),
+        item.get("why_it_matters"),
+        item.get("what_happened"),
+    ]
+    for candidate in candidates:
+        text = clean_text(candidate)
+        if len(text) >= 28:
+            return trim_text(text, 150)
+
+    tags = {str(tag).lower() for tag in item.get("topic_tags", []) or []}
+    if {"agent", "tooling", "coding"} & tags:
+        return "从工程角度看，这类进展通常对应更具体的接入方式、协作边界和开发工作流变化，适合评估是否值得纳入团队工具栈。"
+    if {"paper", "benchmark"} & tags:
+        return "从研究角度看，这类内容更值得关注方法假设、评测口径和可复用思路，而不只是结论本身。"
+    if {"funding", "company", "pricing"} & tags:
+        return "从商业角度看，它更像是行业节奏信号，能帮助判断产品路线、资源投入与企业化推进是否正在提速。"
+    return "这条内容更适合作为理解今天 AI 行业进展的一块背景拼图，重点不在单点热度，而在它能补充什么判断依据。"
 
 
 def choose_reason(template_id: str, options: list[str], reason_state: Counter[str]) -> str:
@@ -230,21 +272,21 @@ def build_target_audience(item: dict[str, Any]) -> str:
     else:
         text = clean_text(audience)
     if text:
-        return trim_text(text, 40)
+        return trim_text(text, 60)
     section = str(item.get("display_section") or "")
     if section == "产品与应用":
-        return "产品经理、应用开发者、AI 业务团队"
+        return "产品经理、应用开发者、AI 平台与业务集成团队"
     if section == "公司动态":
         return "行业研究者、管理层、投资与战略团队"
     return "算法工程师、模型团队、技术决策者"
 
 
 def build_quick_hint(item: dict[str, Any]) -> str:
-    hint = item.get("summary_zh") or item.get("summary") or item.get("one_line_takeaway") or ""
+    hint = item.get("one_line_takeaway") or item.get("summary_zh") or item.get("summary") or ""
     text = clean_text(hint)
     if not text:
         return "可作补充阅读"
-    return trim_text(text, 28)
+    return trim_text(text, 32)
 
 
 def build_trend_note(item: dict[str, Any], trend_state: dict[str, Any], *, section: str) -> str:
@@ -253,22 +295,23 @@ def build_trend_note(item: dict[str, Any], trend_state: dict[str, Any], *, secti
     report_date = str(trend_state.get("report_date", "")).strip()
     if trend_type != "trending" or not published_date or published_date == report_date:
         return ""
-    if section != "top" or trend_state["global"] >= 2:
+    if section != "top" or trend_state["shown"] >= 2:
         return ""
-    trend_state["global"] += 1
+    trend_state["shown"] += 1
     return "注：该内容为当日趋势上升，并非当日首次发布。"
 
 
 def choose_editorial_judgment(editorial_summary: dict[str, Any], items: list[dict[str, Any]]) -> str:
     overview = clean_text(editorial_summary.get("overview"))
-    if overview and len(overview) >= 20:
-        return trim_text(first_sentence(overview), 80)
+    if overview and len(overview) >= 24:
+        return trim_text(first_sentence(overview), 90)
+
     tags = Counter(tag for item in items for tag in item.get("topic_tags", []) or [])
     top_tags = {str(name).lower() for name, _ in tags.most_common(4)}
     if {"agent", "enterprise"} & top_tags:
-        return "今天更值得关注的不是模型参数变化，而是 AI 持续进入真实工作流和企业场景。"
+        return "今天更值得关注的不是模型参数变化，而是 AI 正在继续进入真实工作流和企业场景。"
     if "tooling" in top_tags or "coding" in top_tags:
-        return "今天的重点更偏工程侧，值得留意开发工具和框架的实用化进展。"
+        return "今天的重点更偏工程侧，值得留意开发工具、框架和可落地能力的推进速度。"
     if {"paper", "benchmark"} & top_tags:
         return "今天整体偏研究向，更适合从方法、评测和趋势判断的角度阅读。"
     return "今天的高价值信息集中在可落地产品、研究进展与行业动作的交叉地带。"
@@ -285,7 +328,7 @@ def generate_reading_guide(all_items: list[dict[str, Any]], section_items: dict[
     if "tooling" in top_tags or section_counter.get("产品与应用", 0) >= section_counter.get("研究与趋势", 0):
         lines.append("- 今天偏应用与工程落地，建议先扫产品与应用，再回看值得纳入内部工具栈的项目。")
     if "paper" in top_tags or "benchmark" in top_tags or section_counter.get("研究与趋势", 0) >= 4:
-        lines.append("- 今天研究向内容占比不低，如果你做模型或算法，可优先看“研究与趋势”。")
+        lines.append("- 今天研究向内容占比不低，如果你做模型、算法或评测，建议优先看“研究与趋势”。")
     if section_counter.get("公司动态", 0) >= 3:
         lines.append("- 如果你更关心行业信号，优先看“公司动态”里的融资、合作和战略动作。")
     if not lines:
@@ -306,7 +349,7 @@ def build_notes(all_items: list[dict[str, Any]], trend_state: dict[str, Any]) ->
         and str(item.get("published_date", "")).strip() != str(trend_state.get("report_date", ""))
     ]
     if trending_old:
-        notes.append("- 文中若出现“趋势上升”提示，表示该内容在当日热度明显走高，并非一定是当天首次发布。")
+        notes.append("- 文中若出现“趋势上升”提示，表示该内容在当日热度明显走高，并不一定是当天首次发布。")
     return notes + [""]
 
 
@@ -344,8 +387,8 @@ def trim_text(text: str, limit: int) -> str:
     if len(cleaned) <= limit:
         return cleaned
     clipped = cleaned[:limit]
-    for sep in ("。", "，", "；", ".", ";", " "):
+    for sep in ("。", "！", "？", ".", ";", " "):
         idx = clipped.rfind(sep)
         if idx >= int(limit * 0.6):
-            return clipped[:idx].strip("，；,; ")
-    return clipped.rstrip("，；,; ") + "…"
+            return clipped[: idx + 1].strip()
+    return clipped.rstrip("，,;； ") + "…"

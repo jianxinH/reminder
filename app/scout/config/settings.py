@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     wechat_mp_content_source_url: str = Field(default="", alias="WECHAT_MP_CONTENT_SOURCE_URL")
     wechat_mp_base_url: str = Field(default="https://api.weixin.qq.com", alias="WECHAT_MP_BASE_URL")
     wechat_mp_publish_mode: str = Field(default="draft_only", alias="WECHAT_MP_PUBLISH_MODE")
+    wechat_mp_auto_generate_cover: bool = Field(default=False, alias="WECHAT_MP_AUTO_GENERATE_COVER")
+    wechat_mp_cover_image_api_key: str = Field(default="", alias="WECHAT_MP_COVER_IMAGE_API_KEY")
+    wechat_mp_cover_image_model: str = Field(default="gpt-image-1", alias="WECHAT_MP_COVER_IMAGE_MODEL")
+    wechat_mp_cover_image_base_url: str = Field(default="https://api.openai.com/v1", alias="WECHAT_MP_COVER_IMAGE_BASE_URL")
+    wechat_mp_cover_image_size: str = Field(default="1536x1024", alias="WECHAT_MP_COVER_IMAGE_SIZE")
+    wechat_mp_cover_image_quality: str = Field(default="high", alias="WECHAT_MP_COVER_IMAGE_QUALITY")
 
     model_config = SettingsConfigDict(
         env_file=".env",

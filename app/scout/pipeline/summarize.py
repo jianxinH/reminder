@@ -144,16 +144,24 @@ class NewsSummarizer:
         importance = estimate_importance(item, is_ai_related=is_ai_related)
         include_in_report = is_ai_related and importance >= 40
         takeaway = summary[:90] if summary else reason
+        detail = clean_paragraph(
+            item.get("summary") or f"{item.get('title', '')} 目前公开信息有限，但从标题和来源判断，仍与当天 AI 产业、产品或研究动态相关。",
+            220,
+        )
+        commentary = clean_paragraph(
+            item.get("summary") or f"这条内容更适合作为当天判断链路里的补充信息，帮助理解 {item.get('source', '相关来源')} 在持续关注什么。",
+            140,
+        )
 
         return {
             "is_ai_related": is_ai_related,
             "category_suggestion": detected_category,
             "zh_title": item.get("title", "")[:120],
             "one_line_takeaway": takeaway or "信息不足",
-            "what_happened": "",
-            "why_it_matters": "",
+            "what_happened": detail,
+            "why_it_matters": commentary,
             "who_should_care": "",
-            "my_commentary": "",
+            "my_commentary": commentary,
             "include_in_report": include_in_report,
             "importance_score": importance,
             "confidence": 0.35 if is_ai_related else 0.2,
@@ -226,9 +234,9 @@ class NewsSummarizer:
             "zh_title": clean_sentence(parsed.get("zh_title") or fallback["zh_title"])[:120] or fallback["zh_title"],
             "one_line_takeaway": clean_sentence(parsed.get("one_line_takeaway") or fallback["one_line_takeaway"])[:120],
             "what_happened": clean_paragraph(parsed.get("what_happened") or fallback["what_happened"], 420),
-            "why_it_matters": clean_paragraph(parsed.get("why_it_matters") or fallback["why_it_matters"], 180),
+            "why_it_matters": clean_paragraph(parsed.get("why_it_matters") or fallback["why_it_matters"], 240),
             "who_should_care": clean_sentence(parsed.get("who_should_care") or fallback["who_should_care"])[:120],
-            "my_commentary": clean_sentence(parsed.get("my_commentary") or fallback["my_commentary"])[:80],
+            "my_commentary": clean_paragraph(parsed.get("my_commentary") or fallback["my_commentary"], 140),
             "include_in_report": include_in_report,
             "importance_score": importance,
             "confidence": clamp_confidence(parsed.get("confidence", fallback["confidence"])),
