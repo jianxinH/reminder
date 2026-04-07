@@ -6,5 +6,6 @@ pydantic-settings==2.10.1
 apscheduler==3.11.0
 python-dotenv==1.1.1
 httpx==0.28.1
+socksio==1.0.0
 google-genai
 PyYAML==6.0.2
