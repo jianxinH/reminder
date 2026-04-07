@@ -100,6 +100,24 @@ jobs:
           export PYTHONPATH="${GITHUB_WORKSPACE}"
           "$HOME/.venvs/ai-daily-scout/bin/python" scripts/send_scout_report_to_wecom.py
 
+      - name: Send report to WeChat MP draft
+        env:
+          SCOUT_REPORT_PATH: ${{ steps.report.outputs.report_path }}
+          WECHAT_MP_APP_ID: ${{ secrets.WECHAT_MP_APP_ID }}
+          WECHAT_MP_APP_SECRET: ${{ secrets.WECHAT_MP_APP_SECRET }}
+          WECHAT_MP_AUTHOR: ${{ vars.WECHAT_MP_AUTHOR || 'AI Daily Scout' }}
+          WECHAT_MP_THUMB_MEDIA_ID: ${{ secrets.WECHAT_MP_THUMB_MEDIA_ID }}
+          WECHAT_MP_DIGEST: ${{ vars.WECHAT_MP_DIGEST || '' }}
+          WECHAT_MP_CONTENT_SOURCE_URL: ${{ vars.WECHAT_MP_CONTENT_SOURCE_URL || '' }}
+          WECHAT_MP_BASE_URL: ${{ vars.WECHAT_MP_BASE_URL || 'https://api.weixin.qq.com' }}
+        run: |
+          if [ -z "$WECHAT_MP_APP_ID" ] || [ -z "$WECHAT_MP_APP_SECRET" ] || [ -z "$WECHAT_MP_THUMB_MEDIA_ID" ]; then
+            echo "WeChat MP draft config is incomplete, skip sending."
+            exit 0
+          fi
+          export PYTHONPATH="${GITHUB_WORKSPACE}"
+          "$HOME/.venvs/ai-daily-scout/bin/python" scripts/send_scout_report_to_wechat_mp.py
+
       - name: Upload report artifacts
         uses: actions/upload-artifact@v4
         with:

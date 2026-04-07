@@ -36,6 +36,14 @@ class Settings(BaseSettings):
     newsletter_enable_trend_label: bool = Field(default=True, alias="NEWSLETTER_ENABLE_TREND_LABEL")
     newsletter_enable_editorial_reason: bool = Field(default=True, alias="NEWSLETTER_ENABLE_EDITORIAL_REASON")
     newsletter_filter_controversial_items: bool = Field(default=True, alias="NEWSLETTER_FILTER_CONTROVERSIAL_ITEMS")
+    wechat_mp_app_id: str = Field(default="", alias="WECHAT_MP_APP_ID")
+    wechat_mp_app_secret: str = Field(default="", alias="WECHAT_MP_APP_SECRET")
+    wechat_mp_author: str = Field(default="AI Daily Scout", alias="WECHAT_MP_AUTHOR")
+    wechat_mp_thumb_media_id: str = Field(default="", alias="WECHAT_MP_THUMB_MEDIA_ID")
+    wechat_mp_digest: str = Field(default="", alias="WECHAT_MP_DIGEST")
+    wechat_mp_content_source_url: str = Field(default="", alias="WECHAT_MP_CONTENT_SOURCE_URL")
+    wechat_mp_base_url: str = Field(default="https://api.weixin.qq.com", alias="WECHAT_MP_BASE_URL")
+    wechat_mp_publish_mode: str = Field(default="draft_only", alias="WECHAT_MP_PUBLISH_MODE")
 
     model_config = SettingsConfigDict(
         env_file=".env",
