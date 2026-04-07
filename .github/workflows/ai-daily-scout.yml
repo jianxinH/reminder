@@ -22,12 +22,29 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-          ref: ${{ github.ref_name }}
-          ssh-key: ${{ secrets.ACTIONS_CHECKOUT_SSH_KEY }}
-          persist-credentials: true
+        env:
+          ACTIONS_CHECKOUT_SSH_KEY: ${{ secrets.ACTIONS_CHECKOUT_SSH_KEY }}
+        run: |
+          if [ -z "$ACTIONS_CHECKOUT_SSH_KEY" ]; then
+            echo "ACTIONS_CHECKOUT_SSH_KEY is required."
+            exit 1
+          fi
+
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$ACTIONS_CHECKOUT_SSH_KEY" > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+          ssh-keyscan github.com >> "$HOME/.ssh/known_hosts"
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
+
+          if [ -d .git ]; then
+            git remote set-url origin "git@github.com:${{ github.repository }}.git"
+            git fetch --depth=1 origin "${{ github.ref_name }}"
+            git checkout "${{ github.ref_name }}"
+            git reset --hard "origin/${{ github.ref_name }}"
+            git clean -fdx
+          else
+            git clone --depth 1 --branch "${{ github.ref_name }}" "git@github.com:${{ github.repository }}.git" .
+          fi
 
       - name: Check system Python
         run: |
