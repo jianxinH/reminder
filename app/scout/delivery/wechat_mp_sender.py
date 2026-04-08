@@ -145,7 +145,7 @@ def build_wechat_mp_article(
     title = extract_title(markdown, fallback=path.stem)
     cover_meta = build_cover_meta(markdown, title)
     html_content = markdown_to_wechat_html(markdown, cover_meta=cover_meta)
-    article_digest = digest.strip() or extract_digest(markdown)
+    article_digest = clamp_digest(digest.strip() or extract_digest(markdown))
 
     article = {
         "title": title,
@@ -277,7 +277,17 @@ def extract_digest(markdown: str) -> str:
     lines = [line.strip() for line in markdown.splitlines() if line.strip()]
     body_lines = [line for line in lines if not line.startswith("#") and not line.startswith(">")]
     digest = " ".join(body_lines[:4]).strip()
-    return trim(digest, 120)
+    return clamp_digest(digest)
+
+
+def clamp_digest(text: str, max_chars: int = 110, max_bytes: int = 320) -> str:
+    cleaned = " ".join(text.split()).strip()
+    if not cleaned:
+        return ""
+    shortened = trim(cleaned, max_chars)
+    while len(shortened.encode("utf-8")) > max_bytes and len(shortened) > 10:
+        shortened = trim(shortened, max(20, len(shortened) - 10))
+    return shortened
 
 
 def markdown_to_wechat_html(markdown: str, *, cover_meta: dict[str, Any]) -> str:
