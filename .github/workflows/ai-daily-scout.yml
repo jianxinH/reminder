@@ -153,10 +153,12 @@ jobs:
           "$HOME/.venvs/ai-daily-scout/bin/python" scripts/send_scout_report_to_wechat_mp.py
 
       - name: Upload report artifacts
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: ai-daily-scout-report
           path: |
             reports/
             ${{ env.SCOUT_DATABASE_PATH }}
-          if-no-files-found: error
+          if-no-files-found: warn
+      
